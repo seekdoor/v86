@@ -20,7 +20,7 @@ endif
 WASM_OPT ?= false
 
 default: build/v86-debug.wasm
-all: build/v86_all.js build/libv86.js build/v86.wasm
+all: build/v86_all.js build/libv86.js build/libv86.mjs build/v86.wasm
 all-debug: build/libv86-debug.js build/v86-debug.wasm
 browser: build/v86_all.js
 
@@ -62,9 +62,10 @@ CLOSURE_FLAGS=\
 		--jscomp_error unknownDefines\
 		--jscomp_error visibility\
 		--use_types_for_optimization\
+		--assume_function_wrapper\
 		--summary_detail_level 3\
-		--language_in ECMASCRIPT_2017\
-		--language_out ECMASCRIPT_2017
+		--language_in ECMASCRIPT_2020\
+		--language_out ECMASCRIPT_2020
 
 CARGO_FLAGS_SAFE=\
 		--target wasm32-unknown-unknown \
@@ -75,18 +76,19 @@ CARGO_FLAGS_SAFE=\
 		-C link-args="build/zstddeclib.o" \
 		--verbose
 
-CARGO_FLAGS=$(CARGO_FLAGS_SAFE) -C target-feature=+bulk-memory
+CARGO_FLAGS=$(CARGO_FLAGS_SAFE) -C target-feature=+bulk-memory -C target-feature=+multivalue -C target-feature=+simd128
 
-CORE_FILES=const.js config.js io.js main.js lib.js ide.js pci.js floppy.js \
-	   memory.js dma.js pit.js vga.js ps2.js pic.js rtc.js uart.js hpet.js \
+CORE_FILES=const.js config.js io.js main.js lib.js buffer.js ide.js pci.js floppy.js \
+	   memory.js dma.js pit.js vga.js ps2.js rtc.js uart.js \
 	   acpi.js apic.js ioapic.js \
-	   state.js ne2k.js sb16.js virtio.js bus.js log.js \
-	   cpu.js debug.js \
+	   state.js ne2k.js sb16.js virtio.js virtio_console.js virtio_net.js virtio_balloon.js \
+	   bus.js log.js cpu.js debug.js \
 	   elf.js kernel.js
-LIB_FILES=9p.js filesystem.js jor1k.js marshall.js utf8.js
+LIB_FILES=9p.js filesystem.js jor1k.js marshall.js
 BROWSER_FILES=screen.js keyboard.js mouse.js speaker.js serial.js \
-	      network.js lib.js starter.js worker_bus.js dummy_screen.js \
-	      print_stats.js filestorage.js
+	      network.js starter.js worker_bus.js dummy_screen.js \
+	      inbrowser_network.js fake_network.js wisp_network.js fetch_network.js \
+          print_stats.js filestorage.js
 
 RUST_FILES=$(shell find src/rust/ -name '*.rs') \
 	   src/rust/gen/interpreter.rs src/rust/gen/interpreter0f.rs \
@@ -133,11 +135,29 @@ build/libv86.js: $(CLOSURE) src/*.js lib/*.js src/browser/*.js
 		--define=DEBUG=false\
 		$(CLOSURE_FLAGS)\
 		--compilation_level SIMPLE\
+		--jscomp_off=missingProperties\
 		--output_wrapper ';(function(){%output%}).call(this);'\
 		--js $(CORE_FILES)\
 		--js $(BROWSER_FILES)\
 		--js $(LIB_FILES)
 	ls -lh build/libv86.js
+
+build/libv86.mjs: $(CLOSURE) src/*.js lib/*.js src/browser/*.js
+	mkdir -p build
+	-ls -lh build/libv86.js
+	java -jar $(CLOSURE) \
+		--js_output_file build/libv86.mjs\
+		--define=DEBUG=false\
+		$(CLOSURE_FLAGS)\
+		--compilation_level SIMPLE\
+		--jscomp_off=missingProperties\
+		--output_wrapper ';let module = {exports:{}}; %output%; export default module.exports.V86;'\
+		--js $(CORE_FILES)\
+		--js $(BROWSER_FILES)\
+		--js $(LIB_FILES)\
+		--chunk_output_type=ES_MODULES\
+		--emit_use_strict=false
+	ls -lh build/libv86.mjs
 
 build/libv86-debug.js: $(CLOSURE) src/*.js lib/*.js src/browser/*.js
 	mkdir -p build
@@ -147,6 +167,7 @@ build/libv86-debug.js: $(CLOSURE) src/*.js lib/*.js src/browser/*.js
 		$(CLOSURE_FLAGS)\
 		$(CLOSURE_READABLE)\
 		--compilation_level SIMPLE\
+		--jscomp_off=missingProperties\
 		--output_wrapper ';(function(){%output%}).call(this);'\
 		--js $(CORE_FILES)\
 		--js $(BROWSER_FILES)\
@@ -171,7 +192,7 @@ build/v86.wasm: $(RUST_FILES) build/softfloat.o build/zstddeclib.o Cargo.toml
 	mkdir -p build/
 	-BLOCK_SIZE=K ls -l build/v86.wasm
 	cargo rustc --release $(CARGO_FLAGS)
-	mv build/wasm32-unknown-unknown/release/v86.wasm build/v86.wasm
+	cp build/wasm32-unknown-unknown/release/v86.wasm build/v86.wasm
 	-$(WASM_OPT) && wasm-opt -O2 --strip-debug build/v86.wasm -o build/v86.wasm
 	BLOCK_SIZE=K ls -l build/v86.wasm
 
@@ -179,23 +200,26 @@ build/v86-debug.wasm: $(RUST_FILES) build/softfloat.o build/zstddeclib.o Cargo.t
 	mkdir -p build/
 	-BLOCK_SIZE=K ls -l build/v86-debug.wasm
 	cargo rustc $(CARGO_FLAGS)
-	mv build/wasm32-unknown-unknown/debug/v86.wasm build/v86-debug.wasm
+	cp build/wasm32-unknown-unknown/debug/v86.wasm build/v86-debug.wasm
 	BLOCK_SIZE=K ls -l build/v86-debug.wasm
 
 build/v86-fallback.wasm: $(RUST_FILES) build/softfloat.o build/zstddeclib.o Cargo.toml
 	mkdir -p build/
 	cargo rustc --release $(CARGO_FLAGS_SAFE)
-	mv build/wasm32-unknown-unknown/release/v86.wasm build/v86-fallback.wasm || true
+	cp build/wasm32-unknown-unknown/release/v86.wasm build/v86-fallback.wasm || true
 
 debug-with-profiler: $(RUST_FILES) build/softfloat.o build/zstddeclib.o Cargo.toml
 	mkdir -p build/
 	cargo rustc --features profiler $(CARGO_FLAGS)
-	mv build/wasm32-unknown-unknown/debug/v86.wasm build/v86-debug.wasm || true
+	cp build/wasm32-unknown-unknown/debug/v86.wasm build/v86-debug.wasm || true
 
 with-profiler: $(RUST_FILES) build/softfloat.o build/zstddeclib.o Cargo.toml
 	mkdir -p build/
 	cargo rustc --release --features profiler $(CARGO_FLAGS)
-	mv build/wasm32-unknown-unknown/release/v86.wasm build/v86.wasm || true
+	cp build/wasm32-unknown-unknown/release/v86.wasm build/v86.wasm || true
+
+watch:
+	cargo watch -x 'rustc $(CARGO_FLAGS)' -s 'cp build/wasm32-unknown-unknown/debug/v86.wasm build/v86-debug.wasm'
 
 build/softfloat.o: lib/softfloat/softfloat.c
 	mkdir -p build
@@ -215,6 +239,7 @@ build/zstddeclib.o: lib/zstd/zstddeclib.c
 
 clean:
 	-rm build/libv86.js
+	-rm build/libv86.mjs
 	-rm build/libv86-debug.js
 	-rm build/v86_all.js
 	-rm build/v86.wasm
@@ -240,11 +265,12 @@ update_version:
 
 $(CLOSURE):
 	mkdir -p $(CLOSURE_DIR)
-	wget -nv -O $(CLOSURE) https://repo1.maven.org/maven2/com/google/javascript/closure-compiler/v20220104/closure-compiler-v20220104.jar
+	# don't upgrade until https://github.com/google/closure-compiler/issues/3972 is fixed
+	wget -nv -O $(CLOSURE) https://repo1.maven.org/maven2/com/google/javascript/closure-compiler/v20210601/closure-compiler-v20210601.jar
 
-build/integration-test-fs/fs.json:
+build/integration-test-fs/fs.json: images/buildroot-bzimage68.bin
 	mkdir -p build/integration-test-fs/flat
-	cp images/buildroot-bzimage.bin build/integration-test-fs/bzImage
+	cp images/buildroot-bzimage68.bin build/integration-test-fs/bzImage
 	touch build/integration-test-fs/initrd
 	cd build/integration-test-fs && tar cfv fs.tar bzImage initrd
 	./tools/fs2json.py build/integration-test-fs/fs.tar --out build/integration-test-fs/fs.json
@@ -254,16 +280,16 @@ build/integration-test-fs/fs.json:
 tests: all-debug build/integration-test-fs/fs.json
 	./tests/full/run.js
 
-tests-release: all build/integration-test-fs/fs.json
+tests-release: build/libv86.js build/v86.wasm build/integration-test-fs/fs.json
 	TEST_RELEASE_BUILD=1 ./tests/full/run.js
 
 nasmtests: all-debug
-	$(MAKE) -C $(NASM_TEST_DIR) all
+	$(NASM_TEST_DIR)/create_tests.js
 	$(NASM_TEST_DIR)/gen_fixtures.js
 	$(NASM_TEST_DIR)/run.js
 
 nasmtests-force-jit: all-debug
-	$(MAKE) -C $(NASM_TEST_DIR) all
+	$(NASM_TEST_DIR)/create_tests.js
 	$(NASM_TEST_DIR)/gen_fixtures.js
 	$(NASM_TEST_DIR)/run.js --force-jit
 
@@ -277,7 +303,7 @@ qemutests: all-debug
 	./tests/qemu/run-qemu.js > build/qemu-test-reference
 	diff build/qemu-test-result build/qemu-test-reference
 
-qemutests-release: all
+qemutests-release: build/libv86.js build/v86.wasm
 	$(MAKE) -C tests/qemu test-i386
 	TEST_RELEASE_BUILD=1 time ./tests/qemu/run.js > build/qemu-test-result
 	./tests/qemu/run-qemu.js > build/qemu-test-reference
@@ -287,7 +313,7 @@ kvm-unit-test: all-debug
 	(cd tests/kvm-unit-tests && ./configure && make x86/realmode.flat)
 	tests/kvm-unit-tests/run.js tests/kvm-unit-tests/x86/realmode.flat
 
-kvm-unit-test-release: all
+kvm-unit-test-release: build/libv86.js build/v86.wasm
 	(cd tests/kvm-unit-tests && ./configure && make x86/realmode.flat)
 	TEST_RELEASE_BUILD=1 tests/kvm-unit-tests/run.js tests/kvm-unit-tests/x86/realmode.flat
 
@@ -297,6 +323,11 @@ expect-tests: all-debug build/libwabt.js
 
 devices-test: all-debug
 	./tests/devices/virtio_9p.js
+	./tests/devices/virtio_console.js
+	./tests/devices/fetch_network.js
+	USE_VIRTIO=1 ./tests/devices/fetch_network.js
+	./tests/devices/wisp_network.js
+	./tests/devices/virtio_balloon.js
 
 rust-test: $(RUST_FILES)
 	env RUSTFLAGS="-D warnings" RUST_BACKTRACE=full RUST_TEST_THREADS=1 cargo test -- --nocapture
@@ -309,16 +340,20 @@ api-tests: all-debug
 	./tests/api/clean-shutdown.js
 	./tests/api/state.js
 	./tests/api/reset.js
+	#./tests/api/floppy-insert-eject.js # disabled for now, sometimes hangs
+	./tests/api/serial.js
+	./tests/api/reboot.js
+	./tests/api/pic.js
 
-all-tests: jshint kvm-unit-test qemutests qemutests-release jitpagingtests api-tests nasmtests nasmtests-force-jit tests expect-tests
+all-tests: eslint kvm-unit-test qemutests qemutests-release jitpagingtests api-tests nasmtests nasmtests-force-jit tests expect-tests
 	# Skipping:
 	# - devices-test (hangs)
 
-jshint:
-	jshint --config=./.jshint.json src tests gen lib
+eslint:
+	eslint src tests gen lib examples tools
 
 rustfmt: $(RUST_FILES)
-	cargo fmt --all -- --check
+	cargo fmt --all -- --check --config fn_single_line=true,control_brace_style=ClosingNextLine
 
 build/capstone-x86.min.js:
 	mkdir -p build
@@ -331,6 +366,6 @@ build/libwabt.js:
 	rm build/1.0.6.zip
 
 build/xterm.js:
-	curl https://cdn.jsdelivr.net/npm/xterm@4.9.0/lib/xterm.js > build/xterm.js
-	curl https://cdn.jsdelivr.net/npm/xterm@4.9.0/lib/xterm.js.map > build/xterm.js.map
-	curl https://cdn.jsdelivr.net/npm/xterm@4.9.0/css/xterm.css > build/xterm.css
+	curl https://cdn.jsdelivr.net/npm/xterm@5.2.1/lib/xterm.min.js > build/xterm.js
+	curl https://cdn.jsdelivr.net/npm/xterm@5.2.1/lib/xterm.js.map > build/xterm.js.map
+	curl https://cdn.jsdelivr.net/npm/xterm@5.2.1/css/xterm.css > build/xterm.css

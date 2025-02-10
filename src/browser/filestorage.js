@@ -87,6 +87,11 @@ function ServerFileStorageWrapper(file_storage, baseurl)
 {
     dbg_assert(baseurl, "ServerMemoryFileStorage: baseurl should not be empty");
 
+    if(!baseurl.endsWith("/"))
+    {
+        baseurl += "/";
+    }
+
     this.storage = file_storage;
     this.baseurl = baseurl;
 }
@@ -99,10 +104,11 @@ ServerFileStorageWrapper.prototype.load_from_server = function(sha256sum)
 {
     return new Promise((resolve, reject) =>
     {
-        v86util.load_file(this.baseurl + sha256sum, { done: buffer =>
+        v86util.load_file(this.baseurl + sha256sum, { done: async buffer =>
         {
             const data = new Uint8Array(buffer);
-            this.cache(sha256sum, data).then(() => resolve(data));
+            await this.cache(sha256sum, data);
+            resolve(data);
         }});
     });
 };
@@ -140,21 +146,3 @@ ServerFileStorageWrapper.prototype.uncache = function(sha256sum)
 {
     this.storage.uncache(sha256sum);
 };
-
-// Closure Compiler's way of exporting
-if(typeof window !== "undefined")
-{
-    window["MemoryFileStorage"] = MemoryFileStorage;
-    window["ServerFileStorageWrapper"] = ServerFileStorageWrapper;
-}
-else if(typeof module !== "undefined" && typeof module.exports !== "undefined")
-{
-    module.exports["MemoryFileStorage"] = MemoryFileStorage;
-    module.exports["ServerFileStorageWrapper"] = ServerFileStorageWrapper;
-}
-else if(typeof importScripts === "function")
-{
-    // web worker
-    self["MemoryFileStorage"] = MemoryFileStorage;
-    self["ServerFileStorageWrapper"] = ServerFileStorageWrapper;
-}

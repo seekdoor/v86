@@ -12,28 +12,13 @@ const testfsjson = require("./testfs.json");
 const SHOW_LOGS = false;
 const STOP_ON_FIRST_FAILURE = false;
 
-function log_pass(msg, ...args)
-{
-    console.log(`\x1b[92m[+] ${msg}\x1b[0m`, ...args);
-}
-
-function log_warn(msg, ...args)
-{
-    console.error(`\x1b[93m[!] ${msg}\x1b[0m`, ...args);
-}
-
-function log_fail(msg, ...args)
-{
-    console.error(`\x1b[91m[-] ${msg}\x1b[0m`, ...args);
-}
-
 function assert_equal(actual, expected, message)
 {
     if(actual !== expected)
     {
-        log_warn("Failed assert equal (Test: %s). %s", tests[test_num].name, message || "");
-        log_warn("Expected:\n" + expected);
-        log_warn("Actual:\n" + actual);
+        console.warn("Failed assert equal (Test: %s). %s", tests[test_num].name, message || "");
+        console.warn("Expected:\n" + expected);
+        console.warn("Actual:\n" + actual);
         test_fail();
     }
 }
@@ -42,8 +27,8 @@ function assert_not_equal(actual, expected, message)
 {
     if(actual === expected)
     {
-        log_warn("Failed assert not equal (Test: %s). %s", tests[test_num].name, message || "");
-        log_warn("Expected something different than:\n" + expected);
+        console.warn("Failed assert not equal (Test: %s). %s", tests[test_num].name, message || "");
+        console.warn("Expected something different than:\n" + expected);
         test_fail();
     }
 }
@@ -142,20 +127,11 @@ const tests =
         },
         capture_trigger: "start-capture",
         end_trigger: "done-read-existing",
-        end: (capture, done) =>
+        end: async (capture, done) =>
         {
-            emulator.read_file("read-existing", function(err, data)
-            {
-                if(err)
-                {
-                    log_warn("Reading read-existing failed: %s",  err);
-                    test_fail();
-                    done();
-                    return;
-                }
-                assert_equal(capture, Buffer.from(data).toString());
-                done();
-            });
+            const data = await emulator.read_file("read-existing");
+            assert_equal(capture, Buffer.from(data).toString());
+            done();
         },
     },
     {
@@ -167,25 +143,16 @@ const tests =
             emulator.serial0_send("echo done-read-new\n");
         },
         end_trigger: "done-read-new",
-        end: (capture, done) =>
+        end: async (capture, done) =>
         {
-            emulator.read_file("read-new", function(err, data)
+            const data = await emulator.read_file("read-new");
+            assert_equal(data.length, 512 * 1024);
+            if(data.find(v => v !== 0))
             {
-                if(err)
-                {
-                    log_warn("Reading read-new failed: %s", err);
-                    test_fail();
-                    done();
-                    return;
-                }
-                assert_equal(data.length, 512 * 1024);
-                if(data.find(v => v !== 0))
-                {
-                    log_warn("Fail: Incorrect data. Expected all zeros.");
-                    test_fail();
-                }
-                done();
-            });
+                console.warn("Fail: Incorrect data. Expected all zeros.");
+                test_fail();
+            }
+            done();
         },
     },
     {
@@ -203,21 +170,12 @@ const tests =
         },
         capture_trigger: "start-capture",
         end_trigger: "done-read-async",
-        end: (capture, done) =>
+        end: async (capture, done) =>
         {
             assert_equal(capture, "bar\n");
-            emulator.read_file("foo", function(err, data)
-            {
-                if(err)
-                {
-                    log_warn("Reading foo failed: %s", err);
-                    test_fail();
-                    done();
-                    return;
-                }
-                assert_equal(Buffer.from(data).toString(), "bar\n");
-                done();
-            });
+            const data = await emulator.read_file("foo");
+            assert_equal(Buffer.from(data).toString(), "bar\n");
+            done();
         },
     },
     {
@@ -579,20 +537,11 @@ const tests =
             emulator.serial0_send("echo fifomessage > /mnt/testfifo\n");
         },
         end_trigger: "done-fifo",
-        end: (capture, done) =>
+        end: async (capture, done) =>
         {
-            emulator.read_file("testfifo-output", function(err, data)
-            {
-                if(err)
-                {
-                    log_warn("Reading testfifo-output failed: %s", err);
-                    test_fail();
-                    done();
-                    return;
-                }
-                assert_equal(Buffer.from(data).toString(), "fifomessage\n");
-                done();
-            });
+            const data = await emulator.read_file("testfifo-output");
+            assert_equal(Buffer.from(data).toString(), "fifomessage\n");
+            done();
         },
     },
     {
@@ -628,20 +577,11 @@ const tests =
             emulator.serial0_send("echo done-mkdir\n");
         },
         end_trigger: "done-mkdir",
-        end: (capture, done) =>
+        end: async (capture, done) =>
         {
-            emulator.read_file("a-dir/e-file", function(err, data)
-            {
-                if(err)
-                {
-                    log_warn("Reading a-dir/e-file failed: %s", err);
-                    test_fail();
-                    done();
-                    return;
-                }
-                assert_equal(Buffer.from(data).toString(), "mkdirfoobar\n");
-                done();
-            });
+            const data = await emulator.read_file("a-dir/e-file");
+            assert_equal(Buffer.from(data).toString(), "mkdirfoobar\n");
+            done();
         },
     },
     {
@@ -708,7 +648,7 @@ const tests =
             const outputs = capture.split("\n").map(output => output.split(/\s+/));
             if(outputs.length < 3)
             {
-                log_warn("Wrong format: %s", capture);
+                console.warn("Wrong format: %s", capture);
                 test_fail();
                 done();
                 return;
@@ -777,7 +717,7 @@ const tests =
 
             if(outputs.length < 3)
             {
-                log_warn("Wrong format (expected 3 rows): %s", capture);
+                console.warn("Wrong format (expected 3 rows): %s", capture);
                 test_fail();
                 done();
                 return;
@@ -855,7 +795,7 @@ const tests =
             emulator.serial0_send('setfattr --name=security.not_an_attr --value="val3" /mnt/file;');
 
             // Remove the caps attribute we've automatically put in. Tested later.
-            emulator.serial0_send('setfattr --remove=security.capability /mnt/file;');
+            emulator.serial0_send("setfattr --remove=security.capability /mnt/file;");
 
             emulator.serial0_send("getfattr --encoding=text --absolute-names --dump /mnt/file | sort;");
             emulator.serial0_send("getfattr --encoding=text --absolute-names --name=user.nested.attr /mnt/file;");
@@ -894,7 +834,7 @@ const tests =
         {
             emulator.serial0_send("echo originalvalue > /mnt/file\n");
             // Remove the caps attribute we've automatically put in. Tested later.
-            emulator.serial0_send('setfattr --remove=security.capability /mnt/file\n');
+            emulator.serial0_send("setfattr --remove=security.capability /mnt/file\n");
 
             emulator.serial0_send("echo start-capture;");
 
@@ -1129,7 +1069,7 @@ const tests =
 
             // Delete and verify.
             // Using glob checks readdir.
-            emulator.serial0_send('rm /mnt/stress-files/file-*\n');
+            emulator.serial0_send("rm /mnt/stress-files/file-*\n");
             emulator.serial0_send('test -z "$(ls /mnt/stress-files)" && echo delete-success\n');
 
             emulator.serial0_send("echo done-stress-files\n");
@@ -1251,21 +1191,12 @@ const tests =
         },
         capture_trigger: "start-capture",
         end_trigger: "done-read-mounted",
-        end: (capture, done) =>
+        end: async (capture, done) =>
         {
             assert_equal(capture, "bar\nfoobaz\n");
-            emulator.read_file("/a/b/fs2/dir/bar", function(err, data)
-            {
-                if(err)
-                {
-                    log_warn("Reading /a/b/fs2/dir/bar failed: %s", err);
-                    test_fail();
-                    done();
-                    return;
-                }
-                assert_equal(Buffer.from(data).toString(), "foobaz\n");
-                done();
-            });
+            const data = await emulator.read_file("/a/b/fs2/dir/bar");
+            assert_equal(Buffer.from(data).toString(), "foobaz\n");
+            done();
         },
     },
     {
@@ -1294,7 +1225,7 @@ const tests =
         },
         capture_trigger: "start-capture",
         end_trigger: "done-write-mounted",
-        end: (capture, done) =>
+        end: async (capture, done) =>
         {
             const lines = capture.split("\n");
             assert_equal(lines.shift(), "foobar");
@@ -1304,18 +1235,9 @@ const tests =
                 assert_equal(line, test_file_string.slice(pos, line.length));
                 pos += line.length;
             }
-            emulator.read_file("a/b/fs2/c/write-new-guest", function(err, data)
-            {
-                if(err)
-                {
-                    log_warn("Reading a/b/fs2/c/write-new-guest failed: %s", err);
-                    test_fail();
-                    done();
-                    return;
-                }
-                assert_equal(Buffer.from(data).toString(), "foobar\n");
-                done();
-            });
+            const data = await emulator.read_file("a/b/fs2/c/write-new-guest");
+            assert_equal(Buffer.from(data).toString(), "foobar\n");
+            done();
         },
     },
     {
@@ -1617,8 +1539,9 @@ const emulator = new V86({
     autostart: true,
     memory_size: 64 * 1024 * 1024,
     filesystem: {
-        "baseurl": __dirname + "/testfs/",
+        baseurl: __dirname + "/testfs/",
     },
+    disable_jit: +process.env.DISABLE_JIT,
     log_level: SHOW_LOGS ? 0x400000 : 0,
 });
 
@@ -1629,133 +1552,56 @@ let capture = "";
 let next_trigger;
 let next_trigger_handler;
 
-function start_timeout()
+async function prepare_test()
 {
+    console.log("\nPreparing test #%d: %s", test_num, tests[test_num].name);
+
     if(tests[test_num].timeout)
     {
         test_timeout = setTimeout(() =>
         {
-            log_fail("Test #%d (%s) took longer than %s sec. Timing out and terminating.", test_num, tests[test_num].name, tests[test_num].timeout);
+            console.error("[-] Test #%d (%s) took longer than %s sec. Timing out and terminating.", test_num, tests[test_num].name, tests[test_num].timeout);
             process.exit(1);
         }, tests[test_num].timeout * 1000);
     }
-}
 
-function nuke_fs()
-{
-    start_timeout();
-
-    console.log("\nPreparing test #%d: %s", test_num, tests[test_num].name);
     console.log("    Nuking /mnt");
-
     emulator.fs9p.RecursiveDelete("");
-    reload_fsjson();
-}
 
-function reload_fsjson()
-{
     if(tests[test_num].use_fsjson)
     {
         console.log("    Reloading files from json");
-        emulator.fs9p.load_from_json(testfsjson, () => do_mounts());
+        emulator.fs9p.load_from_json(testfsjson);
     }
-    else
-    {
-        do_mounts();
-    }
-}
 
-function do_mounts()
-{
     console.log("    Configuring mounts");
     if(tests[test_num].mounts && tests[test_num].mounts.length > 0)
     {
-        premount(0);
-
-        function premount(mount_num)
+        for(const { path, baseurl, basefs } of tests[test_num].mounts)
         {
-            const path = tests[test_num].mounts[mount_num].path;
-            emulator.serial0_send("mkdir -p /mnt" +  path + "\n");
-            emulator.serial0_send("rmdir /mnt" +  path + "\n");
-            emulator.serial0_send("echo done-premount\n");
-            next_trigger = "done-premount";
-            next_trigger_handler = () => mount(mount_num);
-        }
-
-        function mount(mount_num)
-        {
-            const { path, baseurl, basefs } = tests[test_num].mounts[mount_num];
-            emulator.mount_fs(path, baseurl, basefs, err =>
-            {
-                if(err)
-                {
-                    log_warn("Failed to mount fs required for test %s: %s",
-                        tests[test_num].name, err);
-                    test_fail();
-                }
-                if(mount_num + 1 < tests[test_num].mounts.length)
-                {
-                    premount(mount_num + 1);
-                }
-                else
-                {
-                    if(test_has_failed)
-                    {
-                        report_test();
-                    }
-                    else
-                    {
-                        load_files();
-                    }
-                }
-            });
+            await async function() {
+                return new Promise((resolve, reject) => {
+                    emulator.serial0_send("mkdir -p /mnt" +  path + "\n");
+                    emulator.serial0_send("rmdir /mnt" +  path + "\n");
+                    emulator.serial0_send("echo done-premount\n");
+                    next_trigger = "done-premount";
+                    next_trigger_handler = resolve;
+                });
+            }();
+            emulator.mount_fs(path, baseurl, basefs);
         }
     }
-    else
-    {
-        load_files();
-    }
-}
 
-function load_files()
-{
     console.log("    Loading additional files");
     if(tests[test_num].files)
     {
         let remaining = tests[test_num].files.length;
         for(const f of tests[test_num].files)
         {
-            emulator.create_file(f.file, f.data, function(err)
-            {
-                if(err)
-                {
-                    log_warn("Failed to add file required for test %s: %s",
-                        tests[test_num].name, err);
-                    test_fail();
-                }
-                remaining--;
-                if(!remaining)
-                {
-                    if(test_has_failed)
-                    {
-                        report_test();
-                    }
-                    else
-                    {
-                        start_test();
-                    }
-                }
-            });
+            await emulator.create_file(f.file, f.data);
         }
     }
-    else
-    {
-        start_test();
-    }
-}
 
-function start_test()
-{
     console.log("Starting test #%d: %s", test_num, tests[test_num].name);
 
     capture = "";
@@ -1800,17 +1646,17 @@ function report_test()
 {
     if(!test_has_failed)
     {
-        log_pass("Test #%d passed: %s", test_num, tests[test_num].name);
+        console.log("[+] Test #%d passed: %s", test_num, tests[test_num].name);
     }
     else
     {
         if(tests[test_num].allow_failure)
         {
-            log_warn("Test #%d failed: %s (failure allowed)", test_num, tests[test_num].name);
+            console.warn("Test #%d failed: %s (failure allowed)", test_num, tests[test_num].name);
         }
         else
         {
-            log_fail("Test #%d failed: %s", test_num, tests[test_num].name);
+            console.error("[-] Test #%d failed: %s", test_num, tests[test_num].name);
 
             if(STOP_ON_FIRST_FAILURE)
             {
@@ -1824,7 +1670,7 @@ function report_test()
 
     if(test_num < tests.length)
     {
-        nuke_fs();
+        prepare_test();
     }
     else
     {
@@ -1837,7 +1683,7 @@ function finish_tests()
     emulator.stop();
 
     console.log("\nTests finished.");
-    if(failed_tests.length == 0)
+    if(failed_tests.length === 0)
     {
         console.log("All tests passed");
     }
@@ -1845,17 +1691,17 @@ function finish_tests()
     {
         let unallowed_failure = false;
 
-        console.error("Failed %d out of %d tests:", failed_tests.length, tests.length);
+        console.error("[-] Failed %d out of %d tests:", failed_tests.length, tests.length);
         for(const num of failed_tests)
         {
             if(tests[num].allow_failure)
             {
-                log_warn("#%d %s (failure allowed)", num, tests[num].name);
+                console.warn("#%d %s (failure allowed)", num, tests[num].name);
             }
             else
             {
                 unallowed_failure = true;
-                log_fail("#%d %s", num, tests[num].name);
+                console.error("[-] #%d %s", num, tests[num].name);
             }
         }
         if(unallowed_failure)
@@ -1867,11 +1713,12 @@ function finish_tests()
 
 emulator.bus.register("emulator-started", function()
 {
-    console.error("Booting now, please stand by");
+    console.log("Booting now, please stand by");
 });
 
-emulator.add_listener("serial0-output-char", function(chr)
+emulator.add_listener("serial0-output-byte", function(byte)
 {
+    var chr = String.fromCharCode(byte);
     if(chr < " " && chr !== "\n" && chr !== "\t" || chr > "~")
     {
         return;
@@ -1893,7 +1740,7 @@ emulator.add_listener("serial0-output-char", function(chr)
     if(!ran_command && line.endsWith("~% "))
     {
         ran_command = true;
-        nuke_fs();
+        prepare_test();
     }
     else if(new_line === next_trigger)
     {

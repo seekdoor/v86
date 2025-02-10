@@ -14,8 +14,9 @@ const config_async_cdrom = {
     vga_bios: { url: __dirname + "/../../bios/vgabios.bin" },
     cdrom: { url: __dirname + "/../../images/linux4.iso", async: true },
     autostart: true,
-    memory_size: 32 * 1024 * 1024,
+    memory_size: 64 * 1024 * 1024,
     filesystem: {},
+    disable_jit: +process.env.DISABLE_JIT,
     log_level: 0,
 };
 
@@ -24,8 +25,9 @@ const config_sync_cdrom = {
     vga_bios: { url: __dirname + "/../../bios/vgabios.bin" },
     cdrom: { url: __dirname + "/../../images/linux4.iso", async: false },
     autostart: true,
-    memory_size: 32 * 1024 * 1024,
+    memory_size: 64 * 1024 * 1024,
     filesystem: {},
+    disable_jit: +process.env.DISABLE_JIT,
     log_level: 0,
 };
 
@@ -33,51 +35,64 @@ const config_filesystem = {
     bios: { url: __dirname + "/../../bios/seabios.bin" },
     vga_bios: { url: __dirname + "/../../bios/vgabios.bin" },
     autostart: true,
-    memory_size: 32 * 1024 * 1024,
+    memory_size: 64 * 1024 * 1024,
     filesystem: {},
-    bzimage: { url: __dirname + "/../../images/buildroot-bzimage.bin" },
+    bzimage: { url: __dirname + "/../../images/buildroot-bzimage68.bin" },
     cmdline: "tsc=reliable mitigations=off random.trust_cpu=on",
     network_relay_url: "<UNUSED>",
+    disable_jit: +process.env.DISABLE_JIT,
     log_level: 0,
 };
 
-function run_test(name, config, done)
+const config_large_memory = {
+    bios: { url: __dirname + "/../../bios/seabios.bin" },
+    vga_bios: { url: __dirname + "/../../bios/vgabios.bin" },
+    cdrom: { url: __dirname + "/../../images/linux4.iso", async: true },
+    autostart: true,
+    memory_size: 2048 * 1024 * 1024,
+    vga_memory_size: 512 * 1024 * 1024,
+    network_relay_url: "<UNUSED>",
+    disable_jit: +process.env.DISABLE_JIT,
+    log_level: 0,
+};
+
+async function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function run_test(name, config, done)
 {
     const emulator = new V86(config);
 
-    setTimeout(function()
-        {
-            console.log("Saving: %s", name);
-            emulator.save_state(function(error, state)
-                {
-                    if(error)
-                    {
-                        console.error(error);
-                        assert(false);
-                    }
+    await sleep(2000);
 
-                    setTimeout(function()
-                        {
-                            console.log("Restoring: %s", name);
-                            emulator.restore_state(state);
+    console.log("Saving: %s", name);
+    const state = await emulator.save_state();
 
-                            setTimeout(function()
-                                {
-                                    console.log("Done: %s", name);
-                                    emulator.stop();
-                                    done && done();
-                                }, 1000);
-                        }, 1000);
-                });
-        }, 5000);
+    await sleep(1000);
+
+    console.log("Restoring: %s", name);
+    await emulator.restore_state(state);
+
+    await emulator.wait_until_vga_screen_contains("~% ");
+    await sleep(1000);
+
+    emulator.keyboard_send_text("echo -n test; echo passed\n");
+    await sleep(1000);
+
+    const lines = emulator.screen_adapter.get_text_screen();
+    if(!lines.some(line => line.startsWith("testpassed")))
+    {
+        console.warn("Failed: " + name);
+        console.warn(lines.map(line => line.replace(/\x00/g, " ")));
+        process.exit(1);
+    }
+
+    console.log("Done: %s", name);
+    emulator.destroy();
 }
 
-run_test("async cdrom", config_async_cdrom, function()
-    {
-        run_test("sync cdrom", config_sync_cdrom, function()
-        {
-            run_test("filesystem", config_filesystem, function()
-            {
-            });
-        });
-    });
+(async function() {
+    await run_test("async cdrom", config_async_cdrom);
+    await run_test("sync cdrom", config_sync_cdrom);
+    await run_test("filesystem", config_filesystem);
+    await run_test("large memory size", config_large_memory);
+})();

@@ -78,7 +78,7 @@
               (then
                 (call $e.trigger_gp_jit
                   (i32.const 0)
-                  (i32.const 4096))
+                  (i32.const 0))
                 (br $B1)))
             (i32.load
               (i32.const 748))
@@ -130,7 +130,7 @@
                   (i32.and
                     (tee_local $l13
                       (i32.load
-                        (i32.const 116)))
+                        (i32.const 100)))
                     (i32.const 1))
                   (then
                     (set_local $l13
@@ -144,7 +144,7 @@
                         (get_local $l13))
                       (i32.xor
                         (i32.load
-                          (i32.const 96))
+                          (i32.const 104))
                         (get_local $l13))))
                   (else
                     (i32.and
@@ -152,7 +152,7 @@
                         (i32.const 120))
                       (i32.const 1))))))
             (i32.store
-              (i32.const 96)
+              (i32.const 104)
               (get_local $l12))
             (set_local $l12
               (i32.add
@@ -161,12 +161,9 @@
             (i32.store
               (i32.const 112)
               (get_local $l12))
-            (i32.store
-              (i32.const 104)
-              (i32.const 31))
-            (i32.store
-              (i32.const 116)
-              (i32.const 2260))
+            (i64.store
+              (i32.const 96)
+              (i64.const 9706626088991))
             (set_local $l12
               (get_local $l12))
             (if $I8
@@ -178,7 +175,7 @@
                     (call $e.safe_write32_slow_jit
                       (get_local $l9)
                       (get_local $l12)
-                      (i32.const 4096))
+                      (i32.const 0))
                     (i32.const 1))
                   (then
                     (call $e.bug_gen_safe_read_write_page_fault

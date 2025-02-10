@@ -454,7 +454,7 @@ VirtIO.prototype.create_common_capability = function(options)
 
                     if(this.queue_select < this.queues.length)
                     {
-                        this.queues_selected = this.queues[this.queue_select];
+                        this.queue_selected = this.queues[this.queue_select];
                     }
                     else
                     {
@@ -553,7 +553,7 @@ VirtIO.prototype.create_common_capability = function(options)
                 read: () => 0,
                 write: data =>
                 {
-                    dbg_log("Warning: High dword of 64 bit queue_desc ignored", LOG_VIRTIO);
+                    if(data !== 0) dbg_log("Warning: High dword of 64 bit queue_desc ignored:" + data, LOG_VIRTIO);
                 },
             },
             {
@@ -571,7 +571,7 @@ VirtIO.prototype.create_common_capability = function(options)
                 read: () => 0,
                 write: data =>
                 {
-                    dbg_log("Warning: High dword of 64 bit queue_avail ignored", LOG_VIRTIO);
+                    if(data !== 0) dbg_log("Warning: High dword of 64 bit queue_avail ignored:" + data, LOG_VIRTIO);
                 },
             },
             {
@@ -589,7 +589,7 @@ VirtIO.prototype.create_common_capability = function(options)
                 read: () => 0,
                 write: data =>
                 {
-                    dbg_log("Warning: High dword of 64 bit queue_used ignored", LOG_VIRTIO);
+                    if(data !== 0) dbg_log("Warning: High dword of 64 bit queue_used ignored:" + data, LOG_VIRTIO);
                 },
             },
         ],
@@ -924,7 +924,7 @@ VirtIO.prototype.set_state = function(state)
     this.isr_status = state[8];
     this.queue_select = state[9];
     let i = 0;
-    for(let queue of state.slice(10))
+    for(const queue of state.slice(10))
     {
         this.queues[i].set_state(queue);
         i++;

@@ -1,9 +1,5 @@
 #![allow(non_snake_case)]
 
-extern "C" {
-    fn hlt_op();
-}
-
 use cpu::arith::*;
 use cpu::cpu::*;
 use cpu::fpu::*;
@@ -11,6 +7,7 @@ use cpu::global_pointers::*;
 use cpu::misc_instr::*;
 use cpu::misc_instr::{pop16, pop32s, push16, push32};
 use cpu::string::*;
+use prefix;
 use softfloat::F80;
 
 pub unsafe fn instr_00_mem(addr: i32, r: i32) { safe_read_write8(addr, &|x| add8(x, read_reg8(r))) }
@@ -58,9 +55,7 @@ pub unsafe fn instr32_05(imm32: i32) { write_reg32(EAX, add32(read_reg32(EAX), i
 pub unsafe fn instr16_06() {
     return_on_pagefault!(push16(*sreg.offset(ES as isize) as i32));
 }
-pub unsafe fn instr32_06() {
-    return_on_pagefault!(push32(*sreg.offset(ES as isize) as i32));
-}
+pub unsafe fn instr32_06() { return_on_pagefault!(push32_sreg(ES)) }
 
 #[no_mangle]
 pub unsafe fn instr16_07() {
@@ -123,9 +118,7 @@ pub unsafe fn instr32_0D(imm32: i32) { write_reg32(EAX, or32(read_reg32(EAX), im
 pub unsafe fn instr16_0E() {
     return_on_pagefault!(push16(*sreg.offset(CS as isize) as i32));
 }
-pub unsafe fn instr32_0E() {
-    return_on_pagefault!(push32(*sreg.offset(CS as isize) as i32));
-}
+pub unsafe fn instr32_0E() { return_on_pagefault!(push32_sreg(CS)) }
 
 pub unsafe fn instr16_0F() { run_instruction0f_16(return_on_pagefault!(read_imm8())); }
 pub unsafe fn instr32_0F() { run_instruction0f_32(return_on_pagefault!(read_imm8())); }
@@ -176,9 +169,7 @@ pub unsafe fn instr32_15(imm32: i32) { write_reg32(EAX, adc32(read_reg32(EAX), i
 pub unsafe fn instr16_16() {
     return_on_pagefault!(push16(*sreg.offset(SS as isize) as i32));
 }
-pub unsafe fn instr32_16() {
-    return_on_pagefault!(push32(*sreg.offset(SS as isize) as i32));
-}
+pub unsafe fn instr32_16() { return_on_pagefault!(push32_sreg(SS)) }
 
 #[no_mangle]
 pub unsafe fn instr16_17() {
@@ -244,9 +235,7 @@ pub unsafe fn instr32_1D(imm32: i32) { write_reg32(EAX, sbb32(read_reg32(EAX), i
 pub unsafe fn instr16_1E() {
     return_on_pagefault!(push16(*sreg.offset(DS as isize) as i32));
 }
-pub unsafe fn instr32_1E() {
-    return_on_pagefault!(push32(*sreg.offset(DS as isize) as i32));
-}
+pub unsafe fn instr32_1E() { return_on_pagefault!(push32_sreg(DS)) }
 
 #[no_mangle]
 pub unsafe fn instr16_1F() {
@@ -581,14 +570,14 @@ pub unsafe fn instr_65() { segment_prefix_op(GS); }
 
 pub unsafe fn instr_66() {
     // Operand-size override prefix
-    *prefixes = (*prefixes as i32 | PREFIX_MASK_OPSIZE) as u8;
+    *prefixes |= prefix::PREFIX_MASK_OPSIZE;
     run_prefix_instruction();
     *prefixes = 0;
 }
 pub unsafe fn instr_67() {
     // Address-size override prefix
     dbg_assert!(is_asize_32() == *is_32);
-    *prefixes = (*prefixes as i32 | PREFIX_MASK_ADDRSIZE) as u8;
+    *prefixes |= prefix::PREFIX_MASK_ADDRSIZE;
     run_prefix_instruction();
     *prefixes = 0;
 }
@@ -641,20 +630,16 @@ pub unsafe fn instr16_F36D() { insw_rep(is_asize_32()); }
 pub unsafe fn instr32_F26D() { insd_rep(is_asize_32()); }
 pub unsafe fn instr32_F36D() { insd_rep(is_asize_32()); }
 
-pub unsafe fn instr_6E() { outsb_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr_F26E() { outsb_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr_F36E() { outsb_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
+pub unsafe fn instr_6E() { outsb_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr_F26E() { outsb_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr_F36E() { outsb_rep(is_asize_32(), segment_prefix(DS)); }
 
-pub unsafe fn instr16_6F() {
-    outsw_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr32_6F() {
-    outsd_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr16_F26F() { outsw_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr16_F36F() { outsw_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr32_F26F() { outsd_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr32_F36F() { outsd_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
+pub unsafe fn instr16_6F() { outsw_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_6F() { outsd_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_F26F() { outsw_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_F36F() { outsw_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_F26F() { outsd_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_F36F() { outsd_rep(is_asize_32(), segment_prefix(DS)); }
 
 pub unsafe fn instr16_70(imm8: i32) { jmpcc16(test_o(), imm8); }
 pub unsafe fn instr16_71(imm8: i32) { jmpcc16(!test_o(), imm8); }
@@ -761,24 +746,53 @@ pub unsafe fn instr_82_7_reg(r: i32, imm: i32) { cmp8(read_reg8(r), imm); }
 pub unsafe fn instr_82_7_mem(addr: i32, imm: i32) {
     cmp8(return_on_pagefault!(safe_read8(addr)), imm);
 }
-pub unsafe fn instr16_83_0_mem(addr: i32, imm: i32) { safe_read_write16(addr, &|x| add16(x, imm)) }
-pub unsafe fn instr16_83_0_reg(r1: i32, imm: i32) { write_reg16(r1, add16(read_reg16(r1), imm)); }
-pub unsafe fn instr16_83_1_mem(addr: i32, imm: i32) { safe_read_write16(addr, &|x| or16(x, imm)) }
-pub unsafe fn instr16_83_1_reg(r1: i32, imm: i32) { write_reg16(r1, or16(read_reg16(r1), imm)); }
-pub unsafe fn instr16_83_2_mem(addr: i32, imm: i32) { safe_read_write16(addr, &|x| adc16(x, imm)) }
-pub unsafe fn instr16_83_2_reg(r1: i32, imm: i32) { write_reg16(r1, adc16(read_reg16(r1), imm)); }
-pub unsafe fn instr16_83_3_mem(addr: i32, imm: i32) { safe_read_write16(addr, &|x| sbb16(x, imm)) }
-pub unsafe fn instr16_83_3_reg(r1: i32, imm: i32) { write_reg16(r1, sbb16(read_reg16(r1), imm)); }
-pub unsafe fn instr16_83_4_mem(addr: i32, imm: i32) { safe_read_write16(addr, &|x| and16(x, imm)) }
-pub unsafe fn instr16_83_4_reg(r1: i32, imm: i32) { write_reg16(r1, and16(read_reg16(r1), imm)); }
-pub unsafe fn instr16_83_5_mem(addr: i32, imm: i32) { safe_read_write16(addr, &|x| sub16(x, imm)) }
-pub unsafe fn instr16_83_5_reg(r1: i32, imm: i32) { write_reg16(r1, sub16(read_reg16(r1), imm)); }
-pub unsafe fn instr16_83_6_mem(addr: i32, imm: i32) { safe_read_write16(addr, &|x| xor16(x, imm)) }
-pub unsafe fn instr16_83_6_reg(r1: i32, imm: i32) { write_reg16(r1, xor16(read_reg16(r1), imm)); }
-pub unsafe fn instr16_83_7_reg(r: i32, imm: i32) { cmp16(read_reg16(r), imm); }
-pub unsafe fn instr16_83_7_mem(addr: i32, imm: i32) {
-    cmp16(return_on_pagefault!(safe_read16(addr)), imm);
+pub unsafe fn instr16_83_0_mem(addr: i32, imm: i32) {
+    safe_read_write16(addr, &|x| add16(x, imm & 0xFFFF))
 }
+pub unsafe fn instr16_83_0_reg(r1: i32, imm: i32) {
+    write_reg16(r1, add16(read_reg16(r1), imm & 0xFFFF));
+}
+pub unsafe fn instr16_83_1_mem(addr: i32, imm: i32) {
+    safe_read_write16(addr, &|x| or16(x, imm & 0xFFFF))
+}
+pub unsafe fn instr16_83_1_reg(r1: i32, imm: i32) {
+    write_reg16(r1, or16(read_reg16(r1), imm & 0xFFFF));
+}
+pub unsafe fn instr16_83_2_mem(addr: i32, imm: i32) {
+    safe_read_write16(addr, &|x| adc16(x, imm & 0xFFFF))
+}
+pub unsafe fn instr16_83_2_reg(r1: i32, imm: i32) {
+    write_reg16(r1, adc16(read_reg16(r1), imm & 0xFFFF));
+}
+pub unsafe fn instr16_83_3_mem(addr: i32, imm: i32) {
+    safe_read_write16(addr, &|x| sbb16(x, imm & 0xFFFF))
+}
+pub unsafe fn instr16_83_3_reg(r1: i32, imm: i32) {
+    write_reg16(r1, sbb16(read_reg16(r1), imm & 0xFFFF));
+}
+pub unsafe fn instr16_83_4_mem(addr: i32, imm: i32) {
+    safe_read_write16(addr, &|x| and16(x, imm & 0xFFFF))
+}
+pub unsafe fn instr16_83_4_reg(r1: i32, imm: i32) {
+    write_reg16(r1, and16(read_reg16(r1), imm & 0xFFFF));
+}
+pub unsafe fn instr16_83_5_mem(addr: i32, imm: i32) {
+    safe_read_write16(addr, &|x| sub16(x, imm & 0xFFFF))
+}
+pub unsafe fn instr16_83_5_reg(r1: i32, imm: i32) {
+    write_reg16(r1, sub16(read_reg16(r1), imm & 0xFFFF));
+}
+pub unsafe fn instr16_83_6_mem(addr: i32, imm: i32) {
+    safe_read_write16(addr, &|x| xor16(x, imm & 0xFFFF))
+}
+pub unsafe fn instr16_83_6_reg(r1: i32, imm: i32) {
+    write_reg16(r1, xor16(read_reg16(r1), imm & 0xFFFF));
+}
+pub unsafe fn instr16_83_7_reg(r: i32, imm: i32) { cmp16(read_reg16(r), imm & 0xFFFF); }
+pub unsafe fn instr16_83_7_mem(addr: i32, imm: i32) {
+    cmp16(return_on_pagefault!(safe_read16(addr)), imm & 0xFFFF);
+}
+
 pub unsafe fn instr32_83_0_mem(addr: i32, imm: i32) { safe_read_write32(addr, &|x| add32(x, imm)) }
 pub unsafe fn instr32_83_0_reg(r1: i32, imm: i32) { write_reg32(r1, add32(read_reg32(r1), imm)); }
 pub unsafe fn instr32_83_1_mem(addr: i32, imm: i32) { safe_read_write32(addr, &|x| or32(x, imm)) }
@@ -878,7 +892,7 @@ pub unsafe fn instr16_8D_reg(_r: i32, _r2: i32) {
 }
 pub unsafe fn instr16_8D_mem(modrm_byte: i32, r: i32) {
     // lea
-    *prefixes = (*prefixes as i32 | SEG_PREFIX_ZERO) as u8;
+    *prefixes |= prefix::SEG_PREFIX_ZERO;
     if let Ok(addr) = modrm_resolve(modrm_byte) {
         write_reg16(r, addr);
     }
@@ -891,30 +905,35 @@ pub unsafe fn instr32_8D_reg(_r: i32, _r2: i32) {
 pub unsafe fn instr32_8D_mem(modrm_byte: i32, r: i32) {
     // lea
     // override prefix, so modrm_resolve does not return the segment part
-    *prefixes = (*prefixes as i32 | SEG_PREFIX_ZERO) as u8;
+    *prefixes |= prefix::SEG_PREFIX_ZERO;
     if let Ok(addr) = modrm_resolve(modrm_byte) {
         write_reg32(r, addr);
     }
     *prefixes = 0;
 }
 
-unsafe fn instr_8E_helper(data: i32, mod_0: i32) {
-    if mod_0 == ES || mod_0 == SS || mod_0 == DS || mod_0 == FS || mod_0 == GS {
-        if !switch_seg(mod_0, data) {
+#[no_mangle]
+pub unsafe fn instr_8E_mem(addr: i32, r: i32) {
+    if r == ES || r == SS || r == DS || r == FS || r == GS {
+        if !switch_seg(r, return_on_pagefault!(safe_read16(addr))) {
             return;
         }
     }
     else {
         dbg_log!("mov sreg #ud");
         trigger_ud();
-    };
+    }
 }
 #[no_mangle]
-pub unsafe fn instr_8E_mem(addr: i32, r: i32) {
-    instr_8E_helper(return_on_pagefault!(safe_read16(addr)), r);
+pub unsafe fn instr_8E_reg(r1: i32, r: i32) {
+    if r == ES || r == SS || r == DS || r == FS || r == GS {
+        switch_seg(r, read_reg16(r1));
+    }
+    else {
+        dbg_log!("mov sreg #ud");
+        trigger_ud();
+    }
 }
-#[no_mangle]
-pub unsafe fn instr_8E_reg(r1: i32, r: i32) { instr_8E_helper(read_reg16(r1), r); }
 
 pub unsafe fn instr16_8F_0_mem(modrm_byte: i32) {
     // pop
@@ -1100,42 +1119,26 @@ pub unsafe fn instr32_A3(moffs: i32) {
     ));
 }
 
-pub unsafe fn instr_A4() { movsb_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr_F2A4() { movsb_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr_F3A4() { movsb_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
+pub unsafe fn instr_A4() { movsb_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr_F2A4() { movsb_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr_F3A4() { movsb_rep(is_asize_32(), segment_prefix(DS)); }
 
-pub unsafe fn instr16_A5() {
-    movsw_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr32_A5() {
-    movsd_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr16_F2A5() { movsw_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr16_F3A5() { movsw_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr32_F2A5() { movsd_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr32_F3A5() { movsd_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
+pub unsafe fn instr16_A5() { movsw_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_A5() { movsd_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_F2A5() { movsw_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_F3A5() { movsw_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_F2A5() { movsd_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_F3A5() { movsd_rep(is_asize_32(), segment_prefix(DS)); }
 
-pub unsafe fn instr_A6() { cmpsb_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr_F2A6() { cmpsb_repnz(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr_F3A6() { cmpsb_repz(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr16_A7() {
-    cmpsw_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr32_A7() {
-    cmpsd_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr16_F2A7() {
-    cmpsw_repnz(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr16_F3A7() {
-    cmpsw_repz(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr32_F2A7() {
-    cmpsd_repnz(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr32_F3A7() {
-    cmpsd_repz(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
+pub unsafe fn instr_A6() { cmpsb_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr_F2A6() { cmpsb_repnz(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr_F3A6() { cmpsb_repz(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_A7() { cmpsw_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_A7() { cmpsd_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_F2A7() { cmpsw_repnz(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_F3A7() { cmpsw_repz(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_F2A7() { cmpsd_repnz(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_F3A7() { cmpsd_repz(is_asize_32(), segment_prefix(DS)); }
 
 pub unsafe fn instr_A8(imm8: i32) { test8(read_reg8(AL), imm8); }
 pub unsafe fn instr16_A9(imm16: i32) { test16(read_reg16(AX), imm16); }
@@ -1152,20 +1155,16 @@ pub unsafe fn instr16_F3AB() { stosw_rep(is_asize_32()); }
 pub unsafe fn instr32_F2AB() { stosd_rep(is_asize_32()); }
 pub unsafe fn instr32_F3AB() { stosd_rep(is_asize_32()); }
 
-pub unsafe fn instr_AC() { lodsb_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr_F2AC() { lodsb_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr_F3AC() { lodsb_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
+pub unsafe fn instr_AC() { lodsb_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr_F2AC() { lodsb_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr_F3AC() { lodsb_rep(is_asize_32(), segment_prefix(DS)); }
 
-pub unsafe fn instr16_AD() {
-    lodsw_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr32_AD() {
-    lodsd_no_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS)));
-}
-pub unsafe fn instr16_F2AD() { lodsw_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr16_F3AD() { lodsw_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr32_F2AD() { lodsd_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
-pub unsafe fn instr32_F3AD() { lodsd_rep(is_asize_32(), return_on_pagefault!(get_seg_prefix(DS))); }
+pub unsafe fn instr16_AD() { lodsw_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_AD() { lodsd_no_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_F2AD() { lodsw_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr16_F3AD() { lodsw_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_F2AD() { lodsd_rep(is_asize_32(), segment_prefix(DS)); }
+pub unsafe fn instr32_F3AD() { lodsd_rep(is_asize_32(), segment_prefix(DS)); }
 
 pub unsafe fn instr_AE() { scasb_no_rep(is_asize_32()); }
 pub unsafe fn instr_F2AE() { scasb_repnz(is_asize_32()); }
@@ -1764,21 +1763,13 @@ pub unsafe fn instr32_D9_3_mem(r: i32) { instr16_D9_3_mem(r) }
 pub unsafe fn instr32_D9_5_mem(r: i32) { instr16_D9_5_mem(r) }
 pub unsafe fn instr32_D9_7_mem(r: i32) { instr16_D9_7_mem(r) }
 
-#[no_mangle]
 pub unsafe fn instr_DA_0_mem(addr: i32) { fpu_fadd(0, return_on_pagefault!(fpu_load_i32(addr))); }
-#[no_mangle]
 pub unsafe fn instr_DA_1_mem(addr: i32) { fpu_fmul(0, return_on_pagefault!(fpu_load_i32(addr))); }
-#[no_mangle]
 pub unsafe fn instr_DA_2_mem(addr: i32) { fpu_fcom(return_on_pagefault!(fpu_load_i32(addr))); }
-#[no_mangle]
 pub unsafe fn instr_DA_3_mem(addr: i32) { fpu_fcomp(return_on_pagefault!(fpu_load_i32(addr))); }
-#[no_mangle]
 pub unsafe fn instr_DA_4_mem(addr: i32) { fpu_fsub(0, return_on_pagefault!(fpu_load_i32(addr))); }
-#[no_mangle]
 pub unsafe fn instr_DA_5_mem(addr: i32) { fpu_fsubr(0, return_on_pagefault!(fpu_load_i32(addr))); }
-#[no_mangle]
 pub unsafe fn instr_DA_6_mem(addr: i32) { fpu_fdiv(0, return_on_pagefault!(fpu_load_i32(addr))); }
-#[no_mangle]
 pub unsafe fn instr_DA_7_mem(addr: i32) { fpu_fdivr(0, return_on_pagefault!(fpu_load_i32(addr))); }
 #[no_mangle]
 pub unsafe fn instr_DA_0_reg(r: i32) { fpu_fcmovcc(test_b(), r); }
@@ -1788,7 +1779,6 @@ pub unsafe fn instr_DA_1_reg(r: i32) { fpu_fcmovcc(test_z(), r); }
 pub unsafe fn instr_DA_2_reg(r: i32) { fpu_fcmovcc(test_be(), r); }
 #[no_mangle]
 pub unsafe fn instr_DA_3_reg(r: i32) { fpu_fcmovcc(test_p(), r); }
-#[no_mangle]
 pub unsafe fn instr_DA_4_reg(_r: i32) { trigger_ud(); }
 pub unsafe fn instr_DA_5_reg(r: i32) {
     if r == 1 {
@@ -1798,17 +1788,11 @@ pub unsafe fn instr_DA_5_reg(r: i32) {
         trigger_ud();
     };
 }
-#[no_mangle]
 pub unsafe fn instr_DA_6_reg(_r: i32) { trigger_ud(); }
-#[no_mangle]
 pub unsafe fn instr_DA_7_reg(_r: i32) { trigger_ud(); }
 
 pub unsafe fn instr_DB_0_mem(addr: i32) { fpu_fildm32(addr); }
-#[no_mangle]
-pub unsafe fn instr_DB_1_mem(_addr: i32) {
-    dbg_log!("fisttp");
-    fpu_unimpl();
-}
+pub unsafe fn instr_DB_1_mem(addr: i32) { fpu_fisttpm32(addr); }
 pub unsafe fn instr_DB_2_mem(addr: i32) { fpu_fistm32(addr); }
 pub unsafe fn instr_DB_3_mem(addr: i32) { fpu_fistm32p(addr); }
 #[no_mangle]
@@ -1863,11 +1847,7 @@ pub unsafe fn instr_DC_6_reg(r: i32) { fpu_fdiv(r, fpu_get_sti(r)); }
 pub unsafe fn instr_DC_7_reg(r: i32) { fpu_fdivr(r, fpu_get_sti(r)); }
 
 pub unsafe fn instr16_DD_0_mem(addr: i32) { fpu_fldm64(addr); }
-#[no_mangle]
-pub unsafe fn instr16_DD_1_mem(_addr: i32) {
-    dbg_log!("fisttp");
-    fpu_unimpl();
-}
+pub unsafe fn instr16_DD_1_mem(addr: i32) { fpu_fisttpm64(addr); }
 pub unsafe fn instr16_DD_2_mem(addr: i32) { fpu_fstm64(addr); }
 pub unsafe fn instr16_DD_3_mem(addr: i32) { fpu_fstm64p(addr); }
 #[no_mangle]
@@ -1885,7 +1865,6 @@ pub unsafe fn instr32_DD_6_mem(addr: i32) { fpu_fsave32(addr); }
 #[no_mangle]
 pub unsafe fn instr16_DD_7_mem(addr: i32) { fpu_fnstsw_mem(addr); }
 pub unsafe fn instr16_DD_0_reg(r: i32) { fpu_ffree(r); }
-#[no_mangle]
 pub unsafe fn instr16_DD_1_reg(r: i32) { fpu_fxch(r) }
 pub unsafe fn instr16_DD_2_reg(r: i32) { fpu_fst(r); }
 pub unsafe fn instr16_DD_3_reg(r: i32) { fpu_fstp(r); }
@@ -1977,11 +1956,7 @@ pub unsafe fn instr_DE_7_reg(r: i32) {
 
 #[no_mangle]
 pub unsafe fn instr_DF_0_mem(addr: i32) { fpu_fildm16(addr) }
-#[no_mangle]
-pub unsafe fn instr_DF_1_mem(_addr: i32) {
-    dbg_log!("fisttp");
-    fpu_unimpl();
-}
+pub unsafe fn instr_DF_1_mem(addr: i32) { fpu_fisttpm16(addr); }
 pub unsafe fn instr_DF_2_mem(addr: i32) { fpu_fistm16(addr); }
 pub unsafe fn instr_DF_3_mem(addr: i32) { fpu_fistm16p(addr); }
 pub unsafe fn instr_DF_4_mem(_addr: i32) {
@@ -1989,11 +1964,7 @@ pub unsafe fn instr_DF_4_mem(_addr: i32) {
     fpu_unimpl();
 }
 pub unsafe fn instr_DF_5_mem(addr: i32) { fpu_fildm64(addr); }
-#[no_mangle]
-pub unsafe fn instr_DF_6_mem(_addr: i32) {
-    dbg_log!("fbstp");
-    fpu_unimpl();
-}
+pub unsafe fn instr_DF_6_mem(addr: i32) { fpu_fbstp(addr); }
 pub unsafe fn instr_DF_7_mem(addr: i32) { fpu_fistm64p(addr); }
 
 #[no_mangle]
@@ -2001,7 +1972,6 @@ pub unsafe fn instr_DF_0_reg(r: i32) {
     fpu_ffree(r);
     fpu_pop();
 }
-#[no_mangle]
 pub unsafe fn instr_DF_1_reg(r: i32) { fpu_fxch(r) }
 pub unsafe fn instr_DF_2_reg(r: i32) { fpu_fstp(r); }
 pub unsafe fn instr_DF_3_reg(r: i32) { fpu_fstp(r); }
@@ -2014,7 +1984,6 @@ pub unsafe fn instr_DF_4_reg(r: i32) {
     };
 }
 pub unsafe fn instr_DF_5_reg(r: i32) { fpu_fucomip(r); }
-#[no_mangle]
 pub unsafe fn instr_DF_6_reg(r: i32) { fpu_fcomip(r); }
 pub unsafe fn instr_DF_7_reg(_r: i32) { trigger_ud(); }
 
@@ -2029,63 +1998,39 @@ pub unsafe fn instr32_E3(imm8s: i32) { jcxz32(imm8s); }
 
 #[no_mangle]
 pub unsafe fn instr_E4(port: i32) {
-    if !test_privileges_for_io(port, 1) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 1) {
         write_reg8(AL, io_port_read8(port));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr16_E5(port: i32) {
-    if !test_privileges_for_io(port, 2) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 2) {
         write_reg16(AX, io_port_read16(port));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr32_E5(port: i32) {
-    if !test_privileges_for_io(port, 4) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 4) {
         write_reg32(EAX, io_port_read32(port));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr_E6(port: i32) {
-    if !test_privileges_for_io(port, 1) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 1) {
         io_port_write8(port, read_reg8(AL));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr16_E7(port: i32) {
-    if !test_privileges_for_io(port, 2) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 2) {
         io_port_write16(port, read_reg16(AX));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr32_E7(port: i32) {
-    if !test_privileges_for_io(port, 4) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 4) {
         io_port_write32(port, read_reg32(EAX));
-        return;
-    };
+    }
 }
 
 pub unsafe fn instr16_E8(imm16: i32) {
@@ -2136,68 +2081,44 @@ pub unsafe fn instr32_EB(imm8: i32) {
 #[no_mangle]
 pub unsafe fn instr_EC() {
     let port = read_reg16(DX);
-    if !test_privileges_for_io(port, 1) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 1) {
         write_reg8(AL, io_port_read8(port));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr16_ED() {
     let port = read_reg16(DX);
-    if !test_privileges_for_io(port, 2) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 2) {
         write_reg16(AX, io_port_read16(port));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr32_ED() {
     let port = read_reg16(DX);
-    if !test_privileges_for_io(port, 4) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 4) {
         write_reg32(EAX, io_port_read32(port));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr_EE() {
     let port = read_reg16(DX);
-    if !test_privileges_for_io(port, 1) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 1) {
         io_port_write8(port, read_reg8(AL));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr16_EF() {
     let port = read_reg16(DX);
-    if !test_privileges_for_io(port, 2) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 2) {
         io_port_write16(port, read_reg16(AX));
-        return;
-    };
+    }
 }
 #[no_mangle]
 pub unsafe fn instr32_EF() {
     let port = read_reg16(DX);
-    if !test_privileges_for_io(port, 4) {
-        return;
-    }
-    else {
+    if test_privileges_for_io(port, 4) {
         io_port_write32(port, read_reg32(EAX));
-        return;
-    };
+    }
 }
 
 pub unsafe fn instr_F0() {
@@ -2220,15 +2141,15 @@ pub unsafe fn instr_F1() {
 
 pub unsafe fn instr_F2() {
     // repnz
-    dbg_assert!(*prefixes as i32 & PREFIX_MASK_REP == 0);
-    *prefixes = (*prefixes as i32 | PREFIX_REPNZ) as u8;
+    dbg_assert!(*prefixes & prefix::PREFIX_MASK_REP == 0);
+    *prefixes |= prefix::PREFIX_REPNZ;
     run_prefix_instruction();
     *prefixes = 0;
 }
 pub unsafe fn instr_F3() {
     // repz
-    dbg_assert!(*prefixes as i32 & PREFIX_MASK_REP == 0);
-    *prefixes = (*prefixes as i32 | PREFIX_REPZ) as u8;
+    dbg_assert!(*prefixes & prefix::PREFIX_MASK_REP == 0);
+    *prefixes |= prefix::PREFIX_REPZ;
     run_prefix_instruction();
     *prefixes = 0;
 }
@@ -2241,7 +2162,19 @@ pub unsafe fn instr_F4() {
         return;
     }
 
-    hlt_op();
+    *in_hlt = true;
+
+    // Try an hlt loop right now: This will run timer interrupts, and if one is
+    // due it will immediately call call_interrupt_vector and continue
+    // execution without an unnecessary cycle through do_run
+    if *flags & FLAG_INTERRUPT != 0 {
+        run_hardware_timers(*acpi_enabled, microtick());
+        handle_irqs();
+    }
+    else {
+        // execution can never resume (until NMIs are supported)
+        cpu_event_halt();
+    }
 }
 #[no_mangle]
 pub unsafe fn instr_F5() {
@@ -2260,7 +2193,7 @@ pub unsafe fn instr_F6_1_mem(addr: i32, imm: i32) {
 pub unsafe fn instr_F6_1_reg(r1: i32, imm: i32) { test8(read_reg8(r1), imm); }
 
 #[no_mangle]
-pub unsafe fn instr_F6_2_mem(addr: i32) { safe_read_write8(addr, &|x| !x) }
+pub unsafe fn instr_F6_2_mem(addr: i32) { safe_read_write8(addr, &|x| !x & 0xFF) }
 #[no_mangle]
 pub unsafe fn instr_F6_2_reg(r1: i32) { write_reg8(r1, !read_reg8(r1)); }
 #[no_mangle]
@@ -2296,7 +2229,7 @@ pub unsafe fn instr16_F7_1_mem(addr: i32, imm: i32) {
     test16(return_on_pagefault!(safe_read16(addr)), imm);
 }
 pub unsafe fn instr16_F7_1_reg(r1: i32, imm: i32) { test16(read_reg16(r1), imm); }
-pub unsafe fn instr16_F7_2_mem(addr: i32) { safe_read_write16(addr, &|x| !x) }
+pub unsafe fn instr16_F7_2_mem(addr: i32) { safe_read_write16(addr, &|x| !x & 0xFFFF) }
 pub unsafe fn instr16_F7_2_reg(r1: i32) { write_reg16(r1, !read_reg16(r1)); }
 pub unsafe fn instr16_F7_3_mem(addr: i32) { safe_read_write16(addr, &|x| neg16(x)) }
 pub unsafe fn instr16_F7_3_reg(r1: i32) { write_reg16(r1, neg16(read_reg16(r1))); }

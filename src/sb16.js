@@ -150,7 +150,7 @@ function SB16(cpu, bus)
     this.dma_buffer_uint8 = new Uint8Array(this.dma_buffer);
     this.dma_buffer_int16 = new Int16Array(this.dma_buffer);
     this.dma_buffer_uint16 = new Uint16Array(this.dma_buffer);
-    this.dma_syncbuffer = new SyncBuffer(this.dma_buffer);
+    this.dma_syncbuffer = new v86util.SyncBuffer(this.dma_buffer);
     this.dma_waiting_transfer = false;
     this.dma_paused = false;
     this.sampling_rate = 22050;
@@ -399,7 +399,7 @@ SB16.prototype.set_state = function(state)
     this.dma_buffer_int8 = new Int8Array(this.dma_buffer);
     this.dma_buffer_int16 = new Int16Array(this.dma_buffer);
     this.dma_buffer_uint16 = new Uint16Array(this.dma_buffer);
-    this.dma_syncbuffer = new SyncBuffer(this.dma_buffer);
+    this.dma_syncbuffer = new v86util.SyncBuffer(this.dma_buffer);
 
     if(this.dma_paused)
     {
@@ -711,7 +711,7 @@ SB16.prototype.port3x1_read = function()
 SB16.prototype.port3x1_write = function(value)
 {
     dbg_log("331 write: mpu command: " + h(value), LOG_SB16);
-    if(value == 0xFF)
+    if(value === 0xFF)
     {
         // Command acknowledge.
         this.mpu_read_buffer.clear();
@@ -1589,9 +1589,11 @@ register_fm_write([0x05], function(bits, register, address)
     {
         // No registers documented here.
         this.fm_default_write(bits, register, address);
-        return;
     }
-    // OPL3 Mode Enable
+    else
+    {
+        // OPL3 Mode Enable
+    }
 });
 
 register_fm_write([0x08], function(bits, register, address)

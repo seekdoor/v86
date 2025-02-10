@@ -32,6 +32,17 @@ function MouseAdapter(bus, screen_container)
         this.enabled = enabled;
     }, this);
 
+    // TODO: Should probably not use bus for this
+    this.is_running = false;
+    this.bus.register("emulator-stopped", function()
+    {
+        this.is_running = false;
+    }, this);
+    this.bus.register("emulator-started", function()
+    {
+        this.is_running = true;
+    }, this);
+
     this.destroy = function()
     {
         if(typeof window === "undefined")
@@ -44,8 +55,7 @@ function MouseAdapter(bus, screen_container)
         window.removeEventListener("mousemove", mousemove_handler, false);
         window.removeEventListener("mousedown", mousedown_handler, false);
         window.removeEventListener("mouseup", mouseup_handler, false);
-        window.removeEventListener("DOMMouseScroll", mousewheel_handler, false);
-        window.removeEventListener("mousewheel", mousewheel_handler, { passive: false });
+        window.removeEventListener("wheel", mousewheel_handler, { passive: false });
     };
 
     this.init = function()
@@ -62,8 +72,7 @@ function MouseAdapter(bus, screen_container)
         window.addEventListener("mousemove", mousemove_handler, false);
         window.addEventListener("mousedown", mousedown_handler, false);
         window.addEventListener("mouseup", mouseup_handler, false);
-        window.addEventListener("DOMMouseScroll", mousewheel_handler, false);
-        window.addEventListener("mousewheel", mousewheel_handler, { passive: false });
+        window.addEventListener("wheel", mousewheel_handler, { passive: false });
     };
     this.init();
 
@@ -147,6 +156,11 @@ function MouseAdapter(bus, screen_container)
             return;
         }
 
+        if(!mouse.is_running)
+        {
+            return;
+        }
+
         var delta_x = 0;
         var delta_y = 0;
 
@@ -208,8 +222,8 @@ function MouseAdapter(bus, screen_container)
 
         if(screen_container)
         {
-            let absolute_x = e.pageX - screen_container.offsetLeft;
-            let absolute_y = e.pageY - screen_container.offsetTop;
+            const absolute_x = e.pageX - screen_container.offsetLeft;
+            const absolute_y = e.pageY - screen_container.offsetTop;
             mouse.bus.send("mouse-absolute", [
                 absolute_x, absolute_y, screen_container.offsetWidth, screen_container.offsetHeight]);
         }

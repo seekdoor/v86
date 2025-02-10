@@ -133,6 +133,8 @@ CPU.prototype.debug_init = function()
 
     function get_regs_short()
     {
+        if(!DEBUG) return;
+
         var
             r32 = { "eax": REG_EAX, "ecx": REG_ECX, "edx": REG_EDX, "ebx": REG_EBX,
                     "esp": REG_ESP, "ebp": REG_EBP, "esi": REG_ESI, "edi": REG_EDI },
@@ -140,8 +142,6 @@ CPU.prototype.debug_init = function()
             s = { "cs": REG_CS, "ds": REG_DS, "es": REG_ES, "fs": REG_FS, "gs": REG_GS, "ss": REG_SS },
             line1 = "",
             line2 = "";
-
-
 
         for(var i = 0; i < 4; i++)
         {
@@ -334,14 +334,14 @@ CPU.prototype.debug_init = function()
 
     function dump_page_structures() {
         var pae = !!(cpu.cr[4] & CR4_PAE);
-        if (pae)
+        if(pae)
         {
             dbg_log("PAE enabled");
 
-            for (var i = 0; i < 4; i++) {
+            for(var i = 0; i < 4; i++) {
                 var addr = cpu.cr[3] + 8 * i;
                 var dword = cpu.read32s(addr);
-                if (dword & 1)
+                if(dword & 1)
                 {
                     dump_page_directory(dword & 0xFFFFF000, true, i << 30);
                 }

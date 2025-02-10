@@ -89,7 +89,7 @@ function load_kernel(mem8, bzimage, initrd, cmdline)
     const kernel_alignment = bzimage32[LINUX_BOOT_HDR_KERNEL_ALIGNMENT >> 2];
     const relocatable_kernel = bzimage8[LINUX_BOOT_HDR_RELOCATABLE_KERNEL];
     const min_alignment = bzimage8[LINUX_BOOT_HDR_MIN_ALIGNMENT];
-    const cmdline_size = bzimage32[LINUX_BOOT_HDR_CMDLINE_SIZE >> 2];
+    const cmdline_size = protocol >= 0x206 ? bzimage32[LINUX_BOOT_HDR_CMDLINE_SIZE >> 2] : 255;
     const payload_offset = bzimage32[LINUX_BOOT_HDR_PAYLOAD_OFFSET >> 2];
     const payload_length = bzimage32[LINUX_BOOT_HDR_PAYLOAD_LENGTH >> 2];
     const pref_address = bzimage32[LINUX_BOOT_HDR_PREF_ADDRESS >> 2];
@@ -171,11 +171,8 @@ function load_kernel(mem8, bzimage, initrd, cmdline)
     mem8.set(protected_mode_kernel, KERNEL_HIGH_ADDRESS);
 
     return {
-        option_rom:
-        {
-            name: "genroms/kernel.bin",
-            data: make_linux_boot_rom(real_mode_segment, heap_end),
-        }
+        name: "genroms/kernel.bin",
+        data: make_linux_boot_rom(real_mode_segment, heap_end),
     };
 }
 
@@ -186,7 +183,7 @@ function make_linux_boot_rom(real_mode_segment, heap_end)
 
     const SIZE = 0x200;
 
-    const data8 = new Uint8Array(0x100);
+    const data8 = new Uint8Array(SIZE);
     const data16 = new Uint16Array(data8.buffer);
 
     data16[0] = 0xAA55;

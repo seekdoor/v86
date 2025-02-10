@@ -17,20 +17,22 @@ var emulator = new V86({
     autostart: true,
     memory_size: 32 * 1024 * 1024,
     filesystem: {},
+    disable_jit: +process.env.DISABLE_JIT,
     log_level: 0,
 });
 
 emulator.bus.register("emulator-started", function()
 {
-    console.error("Booting now, please stand by");
+    console.log("Booting now, please stand by");
     emulator.create_file("test-jit", test_executable);
 });
 
 var ran_command = false;
 var line = "";
 
-emulator.add_listener("serial0-output-char", function(chr)
+emulator.add_listener("serial0-output-byte", async function(byte)
 {
+    var chr = String.fromCharCode(byte);
     if(chr < " " && chr !== "\n" && chr !== "\t" || chr > "~")
     {
         return;
@@ -59,21 +61,19 @@ emulator.add_listener("serial0-output-char", function(chr)
     {
         console.error("Done. Reading result ...");
 
-        emulator.read_file("/result", function(err, data)
-            {
-                emulator.stop();
-                if(err) throw err;
-                let result = Buffer.from(data).toString();
-                if(result !== "test_shared passed\ntest_consecutive_written passed\n")
-                {
-                    console.error("[!] Error. Result was:\n" + result);
-                    process.exit(1);
-                }
-                else
-                {
-                    console.log("[+] Test passed");
-                }
-            });
-    }
+        const data = await emulator.read_file("/result");
 
+        emulator.destroy();
+
+        let result = Buffer.from(data).toString();
+        if(result !== "test_shared passed\ntest_consecutive_written passed\n")
+        {
+            console.error("[!] Error. Result was:\n" + result);
+            process.exit(1);
+        }
+        else
+        {
+            console.log("[+] Test passed");
+        }
+    }
 });

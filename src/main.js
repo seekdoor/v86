@@ -10,7 +10,10 @@ function v86(bus, wasm)
     this.running = false;
 
     /** @type {boolean} */
-    this.stopped = false;
+    this.stopping = false;
+
+    /** @type {boolean} */
+    this.idle = true;
 
     this.tick_counter = 0;
     this.worker = null;
@@ -19,17 +22,13 @@ function v86(bus, wasm)
     this.cpu = new CPU(bus, wasm, () => { this.idle && this.next_tick(0); });
 
     this.bus = bus;
-    bus.register("cpu-init", this.init, this);
-    bus.register("cpu-run", this.run, this);
-    bus.register("cpu-stop", this.stop, this);
-    bus.register("cpu-restart", this.restart, this);
 
     this.register_yield();
 }
 
 v86.prototype.run = function()
 {
-    this.stopped = false;
+    this.stopping = false;
 
     if(!this.running)
     {
@@ -42,15 +41,15 @@ v86.prototype.run = function()
 
 v86.prototype.do_tick = function()
 {
-    if(this.stopped || !this.running)
+    if(this.stopping || !this.running)
     {
-        this.stopped = this.running = false;
+        this.stopping = this.running = false;
         this.bus.send("emulator-stopped");
         return;
     }
 
     this.idle = false;
-    const t = this.cpu.main_run();
+    const t = this.cpu.main_loop();
 
     this.next_tick(t);
 };
@@ -74,7 +73,7 @@ v86.prototype.stop = function()
 {
     if(this.running)
     {
-        this.stopped = true;
+        this.stopping = true;
     }
 };
 
@@ -118,11 +117,13 @@ else if(typeof Worker !== "undefined")
 
     function the_worker()
     {
+        let timeout;
         globalThis.onmessage = function(e)
         {
             const t = e.data.t;
+            timeout = timeout && clearTimeout(timeout);
             if(t < 1) postMessage(e.data.tick);
-            else setTimeout(() => postMessage(e.data.tick), t);
+            else timeout = setTimeout(() => postMessage(e.data.tick), t);
         };
     }
 
@@ -141,7 +142,7 @@ else if(typeof Worker !== "undefined")
 
     v86.prototype.unregister_yield = function()
     {
-        this.worker.terminate();
+        this.worker && this.worker.terminate();
         this.worker = null;
     };
 }

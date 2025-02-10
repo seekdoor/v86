@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter;
 
 use jit::{BasicBlock, BasicBlockType, MAX_EXTRA_BASIC_BLOCKS};
@@ -6,7 +7,11 @@ use profiler;
 
 const ENTRY_NODE_ID: u32 = 0xffff_ffff;
 
-type Graph = HashMap<u32, HashSet<u32>>;
+// this code works fine with either BTree or Hash Maps/Sets
+// - HashMap / HashSet: slightly faster
+// - BTreeMap / BTreeSet: stable iteration order (graphs don't change between rust versions, required for expect tests)
+type Set = BTreeSet<u32>;
+type Graph = BTreeMap<u32, Set>;
 
 /// Reverse the direction of all edges in the graph
 fn rev_graph_edges(nodes: &Graph) -> Graph {
@@ -15,7 +20,7 @@ fn rev_graph_edges(nodes: &Graph) -> Graph {
         for to in tos {
             rev_nodes
                 .entry(*to)
-                .or_insert_with(|| HashSet::new())
+                .or_insert_with(|| Set::new())
                 .insert(*from);
         }
     }
@@ -24,10 +29,10 @@ fn rev_graph_edges(nodes: &Graph) -> Graph {
 
 pub fn make_graph(basic_blocks: &Vec<BasicBlock>) -> Graph {
     let mut nodes = Graph::new();
-    let mut entry_edges = HashSet::new();
+    let mut entry_edges = Set::new();
 
     for b in basic_blocks.iter() {
-        let mut edges = HashSet::new();
+        let mut edges = Set::new();
 
         match &b.ty {
             &BasicBlockType::ConditionalJump {
@@ -269,14 +274,16 @@ pub fn loopify(nodes: &Graph) -> Vec<WasmStructure> {
                 .collect();
 
             if entries_to_group.len() != 1 {
-                dbg_log!(
-                    "Compiling multi-entry loop with {} entries and {} basic blocks",
-                    entries_to_group.len(),
-                    group.len()
-                );
+                //dbg_log!(
+                //    "Compiling multi-entry loop with {} entries and {} basic blocks",
+                //    entries_to_group.len(),
+                //    group.len()
+                //);
             }
 
-            if entries_to_group.len() * group.len() > MAX_EXTRA_BASIC_BLOCKS {
+            let max_extra_basic_blocks = unsafe { MAX_EXTRA_BASIC_BLOCKS } as usize;
+
+            if entries_to_group.len() * group.len() > max_extra_basic_blocks {
                 let mut subgroup_edges: Graph = Graph::new();
                 for elem in group {
                     subgroup_edges.insert(
@@ -394,7 +401,7 @@ pub fn blockify(blocks: &mut Vec<WasmStructure>, edges: &Graph) {
         match &blocks[source + 1] {
             WasmStructure::BasicBlock(_) =>
                 //dbg_assert!(*b == bbs.next().unwrap())
-                {}
+                {},
             WasmStructure::Dispatcher(_) => {},
             WasmStructure::Loop(_blocks) | WasmStructure::Block(_blocks) => {}, //dbg_assert!(blocks[0].head() == bb),
         }

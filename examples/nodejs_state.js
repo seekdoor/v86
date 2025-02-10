@@ -2,7 +2,7 @@
 "use strict";
 
 var fs = require("fs");
-var V86Starter = require("../build/libv86.js").V86Starter;
+var V86 = require("../build/libv86.js").V86;
 
 function readfile(path)
 {
@@ -20,14 +20,15 @@ process.stdin.setEncoding("utf8");
 
 console.log("Now booting, please stand by ...");
 
-var emulator = new V86Starter({
+var emulator = new V86({
     bios: { buffer: bios },
     cdrom: { buffer: linux },
     autostart: true,
 });
 
-emulator.add_listener("serial0-output-char", function(chr)
+emulator.add_listener("serial0-output-byte", function(byte)
 {
+    var chr = String.fromCharCode(byte);
     if(chr <= "~")
     {
         process.stdout.write(chr);
@@ -36,27 +37,19 @@ emulator.add_listener("serial0-output-char", function(chr)
 
 var state;
 
-process.stdin.on("data", function(c)
+process.stdin.on("data", async function(c)
 {
     if(c === "\u0003")
     {
         // ctrl c
-        emulator.stop();
+        emulator.destroy();
         process.stdin.pause();
     }
     else if(c === "\x1b\x4f\x51")
     {
         // f2
-        emulator.save_state(function(err, s)
-        {
-            console.log("--- Saved ---");
-            if(err)
-            {
-                throw err;
-            }
-
-            state = s;
-        });
+        state = await emulator.save_state();
+        console.log("--- Saved ---");
     }
     else if(c === "\x1b\x4f\x52")
     {
@@ -64,7 +57,7 @@ process.stdin.on("data", function(c)
         if(state)
         {
             console.log("--- Restored ---");
-            emulator.restore_state(state);
+            await emulator.restore_state(state);
         }
     }
     else

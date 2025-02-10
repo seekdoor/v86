@@ -29,7 +29,7 @@ function IO(cpu)
         cpu.memory_map_read32[i] = cpu.memory_map_write32[i] = undefined;
     }
 
-    this.mmap_register(memory_size, 0x100000000 - memory_size,
+    this.mmap_register(memory_size, MMAP_MAX - memory_size,
         function(addr) {
             // read outside of the memory size
             dbg_log("Read from unmapped memory space, addr=" + h(addr >>> 0, 8), LOG_IO);
@@ -355,7 +355,8 @@ IO.prototype.port_read8 = function(port_addr)
         );
     }
     var value = entry.read8.call(entry.device);
-    dbg_assert(value < 0x100, "8 bit port returned large value: " + h(port_addr));
+    dbg_assert(typeof value === "number");
+    dbg_assert(value < 0x100 && value >= 0, "8 bit port returned large value: " + h(port_addr));
     return value;
 };
 
@@ -371,6 +372,7 @@ IO.prototype.port_read16 = function(port_addr)
         );
     }
     var value = entry.read16.call(entry.device);
+    dbg_assert(typeof value === "number");
     dbg_assert(value < 0x10000 && value >= 0, "16 bit port returned large value: " + h(port_addr));
     return value;
 };

@@ -7,7 +7,7 @@
 
 window.onload = function()
 {
-    var emulator = new V86Starter({
+    var emulator = new V86({
         wasm_path: "../build/v86.wasm",
         memory_size: 32 * 1024 * 1024,
         vga_memory_size: 2 * 1024 * 1024,
@@ -22,19 +22,27 @@ window.onload = function()
             url: "../bios/vgabios.bin",
         },
         bzimage: {
-            url: "../images/buildroot-bzimage.bin",
+            url: "../images/buildroot-bzimage68.bin",
         },
         autostart: true,
         disable_keyboard: true,
+        disable_mouse: true,
     });
 
     var data = "";
+    var do_output = false;
 
-    emulator.add_listener("serial0-output-char", function(char)
+    emulator.add_listener("serial0-output-byte", function(byte)
     {
+        var char = String.fromCharCode(byte);
         if(char !== "\r")
         {
             data += char;
+        }
+
+        if(do_output)
+        {
+            document.getElementById("result").textContent += char;
         }
 
         if(data.endsWith("~% "))
@@ -42,19 +50,7 @@ window.onload = function()
             console.log("Now ready");
             document.getElementById("status").textContent = "Ready.\n";
             document.getElementById("run").disabled = false;
-        }
-    });
-
-    emulator.add_listener("serial0-output-line", function(line)
-    {
-        // filter noise
-        if(!line.startsWith("/root% lua -e") &&
-           !line.startsWith("> ") &&
-           line.indexOf("Welcome to Buildroot") === -1 &&
-           line.indexOf("login:") === -1 &&
-           line.trim() !== "")
-        {
-            document.getElementById("result").textContent += line;
+            do_output = false;
         }
     });
 
@@ -75,6 +71,8 @@ window.onload = function()
         document.getElementById("result").textContent = "";
         document.getElementById("status").textContent = "Running ...\n";
         this.disabled = true;
+
+        do_output = true;
     };
 };
 

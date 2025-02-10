@@ -15,8 +15,8 @@ unsafe fn unimplemented_sse() {
 
 use cpu::arith::{
     bsf16, bsf32, bsr16, bsr32, bt_mem, bt_reg, btc_mem, btc_reg, btr_mem, btr_reg, bts_mem,
-    bts_reg, cmpxchg8, cmpxchg16, cmpxchg32, popcnt, shld16, shld32, shrd16, shrd32, xadd8, xadd16,
-    xadd32,
+    bts_reg, cmpxchg16, cmpxchg32, cmpxchg8, popcnt, shld16, shld32, shrd16, shrd32, xadd16,
+    xadd32, xadd8,
 };
 use cpu::arith::{
     imul_reg16, imul_reg32, saturate_sd_to_sb, saturate_sd_to_sw, saturate_sd_to_ub,
@@ -27,7 +27,7 @@ use cpu::fpu::fpu_set_tag_word;
 use cpu::global_pointers::*;
 use cpu::misc_instr::{
     adjust_stack_reg, bswap, cmovcc16, cmovcc32, fxrstor, fxsave, get_stack_pointer, jmpcc16,
-    jmpcc32, push16, push32, setcc_mem, setcc_reg, test_b, test_be, test_l, test_le, test_o,
+    jmpcc32, push16, push32_sreg, setcc_mem, setcc_reg, test_b, test_be, test_l, test_le, test_o,
     test_p, test_s, test_z,
 };
 use cpu::misc_instr::{lar, lsl, verr, verw};
@@ -449,7 +449,6 @@ pub unsafe fn instr_0F09() {
 }
 #[no_mangle]
 pub unsafe fn instr_0F0A() { undefined_instruction(); }
-#[no_mangle]
 pub unsafe fn instr_0F0B() {
     // UD2
     trigger_ud();
@@ -477,7 +476,7 @@ pub unsafe fn instr_0F10_mem(addr: i32, r: i32) {
 pub unsafe fn instr_F30F10_reg(r1: i32, r2: i32) {
     // movss xmm, xmm/m32
     let data = read_xmm128s(r1);
-    write_xmm32(r2, data.u32_0[0] as i32);
+    write_xmm32(r2, data.u32[0] as i32);
 }
 pub unsafe fn instr_F30F10_mem(addr: i32, r: i32) {
     // movss xmm, xmm/m32
@@ -492,11 +491,10 @@ pub unsafe fn instr_660F10_reg(r1: i32, r2: i32) { instr_660F10(read_xmm128s(r1)
 pub unsafe fn instr_660F10_mem(addr: i32, r: i32) {
     instr_660F10(return_on_pagefault!(safe_read128s(addr)), r);
 }
-#[no_mangle]
 pub unsafe fn instr_F20F10_reg(r1: i32, r2: i32) {
     // movsd xmm, xmm/m64
     let data = read_xmm128s(r1);
-    write_xmm64(r2, data.u64_0[0]);
+    write_xmm64(r2, data.u64[0]);
 }
 pub unsafe fn instr_F20F10_mem(addr: i32, r: i32) {
     // movsd xmm, xmm/m64
@@ -514,12 +512,12 @@ pub unsafe fn instr_0F11_mem(addr: i32, r: i32) {
 pub unsafe fn instr_F30F11_reg(rm_dest: i32, reg_src: i32) {
     // movss xmm/m32, xmm
     let data = read_xmm128s(reg_src);
-    write_xmm32(rm_dest, data.u32_0[0] as i32);
+    write_xmm32(rm_dest, data.u32[0] as i32);
 }
 pub unsafe fn instr_F30F11_mem(addr: i32, r: i32) {
     // movss xmm/m32, xmm
     let data = read_xmm128s(r);
-    return_on_pagefault!(safe_write32(addr, data.u32_0[0] as i32));
+    return_on_pagefault!(safe_write32(addr, data.u32[0] as i32));
 }
 pub unsafe fn instr_660F11_reg(r1: i32, r2: i32) {
     // movupd xmm/m128, xmm
@@ -529,11 +527,10 @@ pub unsafe fn instr_660F11_mem(addr: i32, r: i32) {
     // movupd xmm/m128, xmm
     mov_r_m128(addr, r);
 }
-#[no_mangle]
 pub unsafe fn instr_F20F11_reg(r1: i32, r2: i32) {
     // movsd xmm/m64, xmm
     let data = read_xmm128s(r2);
-    write_xmm64(r1, data.u64_0[0]);
+    write_xmm64(r1, data.u64[0]);
 }
 pub unsafe fn instr_F20F11_mem(addr: i32, r: i32) {
     // movsd xmm/m64, xmm
@@ -548,7 +545,7 @@ pub unsafe fn instr_0F12_mem(addr: i32, r: i32) {
 pub unsafe fn instr_0F12_reg(r1: i32, r2: i32) {
     // movhlps xmm, xmm
     let data = read_xmm128s(r1);
-    write_xmm64(r2, data.u64_0[1]);
+    write_xmm64(r2, data.u64[1]);
 }
 pub unsafe fn instr_660F12_reg(_r1: i32, _r: i32) { trigger_ud(); }
 pub unsafe fn instr_660F12_mem(addr: i32, r: i32) {
@@ -557,13 +554,33 @@ pub unsafe fn instr_660F12_mem(addr: i32, r: i32) {
     write_xmm64(r, data);
 }
 #[no_mangle]
-pub unsafe fn instr_F20F12_mem(_addr: i32, _r: i32) { unimplemented_sse(); }
+pub unsafe fn instr_F20F12(source: u64, r: i32) {
+    // movddup xmm1, xmm2/m64
+    write_xmm_reg128(
+        r,
+        reg128 {
+            u64: [source, source],
+        },
+    );
+}
+pub unsafe fn instr_F20F12_reg(r1: i32, r2: i32) { instr_F20F12(read_xmm64s(r1), r2); }
+pub unsafe fn instr_F20F12_mem(addr: i32, r: i32) {
+    instr_F20F12(return_on_pagefault!(safe_read64s(addr)), r);
+}
 #[no_mangle]
-pub unsafe fn instr_F20F12_reg(_r1: i32, _r2: i32) { unimplemented_sse(); }
-#[no_mangle]
-pub unsafe fn instr_F30F12_mem(_addr: i32, _r: i32) { unimplemented_sse(); }
-#[no_mangle]
-pub unsafe fn instr_F30F12_reg(_r1: i32, _r2: i32) { unimplemented_sse(); }
+pub unsafe fn instr_F30F12(source: reg128, r: i32) {
+    // movsldup xmm1, xmm2/m128
+    write_xmm_reg128(
+        r,
+        reg128 {
+            u32: [source.u32[0], source.u32[0], source.u32[2], source.u32[2]],
+        },
+    );
+}
+pub unsafe fn instr_F30F12_reg(r1: i32, r2: i32) { instr_F30F12(read_xmm128s(r1), r2); }
+pub unsafe fn instr_F30F12_mem(addr: i32, r: i32) {
+    instr_F30F12(return_on_pagefault!(safe_read128s(addr)), r);
+}
 pub unsafe fn instr_0F13_mem(addr: i32, r: i32) {
     // movlps m64, xmm
     movl_r128_m64(addr, r);
@@ -574,6 +591,7 @@ pub unsafe fn instr_660F13_mem(addr: i32, r: i32) {
     // movlpd xmm/m64, xmm
     movl_r128_m64(addr, r);
 }
+
 #[no_mangle]
 pub unsafe fn instr_0F14(source: u64, r: i32) {
     // unpcklps xmm, xmm/m128
@@ -615,10 +633,10 @@ pub unsafe fn instr_0F15(source: reg128, r: i32) {
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        destination.u32_0[2] as i32,
-        source.u32_0[2] as i32,
-        destination.u32_0[3] as i32,
-        source.u32_0[3] as i32,
+        destination.u32[2] as i32,
+        source.u32[2] as i32,
+        destination.u32[3] as i32,
+        source.u32[3] as i32,
     );
 }
 pub unsafe fn instr_0F15_reg(r1: i32, r2: i32) { instr_0F15(read_xmm128s(r1), r2); }
@@ -632,54 +650,57 @@ pub unsafe fn instr_660F15(source: reg128, r: i32) {
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        destination.u32_0[2] as i32,
-        destination.u32_0[3] as i32,
-        source.u32_0[2] as i32,
-        source.u32_0[3] as i32,
+        destination.u32[2] as i32,
+        destination.u32[3] as i32,
+        source.u32[2] as i32,
+        source.u32[3] as i32,
     );
 }
 pub unsafe fn instr_660F15_reg(r1: i32, r2: i32) { instr_660F15(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660F15_mem(addr: i32, r: i32) {
     instr_660F15(return_on_pagefault!(safe_read128s(addr)), r);
 }
-#[no_mangle]
-pub unsafe fn instr_0F16_mem(addr: i32, r: i32) {
-    // movhps xmm, m64
-    movh_m64_r128(addr, r);
-}
-#[no_mangle]
-pub unsafe fn instr_0F16_reg(r1: i32, r2: i32) {
-    // movlhps xmm, xmm
-    let data = read_xmm128s(r1);
-    let orig = read_xmm128s(r2);
-    write_xmm128_2(r2, orig.u64_0[0], data.u64_0[0]);
-}
-#[no_mangle]
-pub unsafe fn instr_660F16_mem(addr: i32, r: i32) {
-    // movhpd xmm, m64
-    movh_m64_r128(addr, r);
-}
-#[no_mangle]
-pub unsafe fn instr_660F16_reg(_r1: i32, _r2: i32) { trigger_ud(); }
-#[no_mangle]
-pub unsafe fn instr_F30F16_reg(_r1: i32, _r2: i32) { unimplemented_sse(); }
-#[no_mangle]
-pub unsafe fn instr_F30F16_mem(_addr: i32, _r: i32) { unimplemented_sse(); }
 
 #[no_mangle]
+pub unsafe fn instr_0F16(source: u64, r: i32) { (*reg_xmm.offset(r as isize)).u64[1] = source; }
+pub unsafe fn instr_0F16_mem(addr: i32, r: i32) {
+    // movhps xmm, m64
+    instr_0F16(return_on_pagefault!(safe_read64s(addr)), r);
+}
+pub unsafe fn instr_0F16_reg(r1: i32, r2: i32) {
+    // movlhps xmm, xmm
+    instr_0F16(read_xmm64s(r1), r2);
+}
+pub unsafe fn instr_660F16_mem(addr: i32, r: i32) {
+    // movhpd xmm, m64
+    instr_0F16(return_on_pagefault!(safe_read64s(addr)), r);
+}
+pub unsafe fn instr_660F16_reg(_r1: i32, _r2: i32) { trigger_ud(); }
+#[no_mangle]
+pub unsafe fn instr_F30F16(source: reg128, r: i32) {
+    // movshdup xmm1, xmm2/m128
+    write_xmm_reg128(
+        r,
+        reg128 {
+            u32: [source.u32[1], source.u32[1], source.u32[3], source.u32[3]],
+        },
+    );
+}
+pub unsafe fn instr_F30F16_reg(r1: i32, r2: i32) { instr_F30F16(read_xmm128s(r1), r2); }
+pub unsafe fn instr_F30F16_mem(addr: i32, r: i32) {
+    instr_F30F16(return_on_pagefault!(safe_read128s(addr)), r);
+}
 pub unsafe fn instr_0F17_mem(addr: i32, r: i32) {
     // movhps m64, xmm
     movh_r128_m64(addr, r);
 }
-#[no_mangle]
 pub unsafe fn instr_0F17_reg(_r1: i32, _r2: i32) { trigger_ud(); }
-#[no_mangle]
 pub unsafe fn instr_660F17_mem(addr: i32, r: i32) {
     // movhpd m64, xmm
     movh_r128_m64(addr, r);
 }
-#[no_mangle]
 pub unsafe fn instr_660F17_reg(_r1: i32, _r2: i32) { trigger_ud(); }
+
 pub unsafe fn instr_0F18_reg(_r1: i32, _r2: i32) {
     // reserved nop
 }
@@ -842,6 +863,7 @@ pub unsafe fn instr_0F25() { undefined_instruction(); }
 pub unsafe fn instr_0F26() { undefined_instruction(); }
 #[no_mangle]
 pub unsafe fn instr_0F27() { undefined_instruction(); }
+
 pub unsafe fn instr_0F28(source: reg128, r: i32) {
     // movaps xmm, xmm/m128
     // XXX: Aligned read or #gp
@@ -902,7 +924,7 @@ pub unsafe fn instr_660F2A(source: u64, r: i32) {
     // These casts can't fail
     let source: [i32; 2] = std::mem::transmute(source);
     let result = reg128 {
-        f64_0: [source[0] as f64, source[1] as f64],
+        f64: [source[0] as f64, source[1] as f64],
     };
     write_xmm_reg128(r, result);
     transition_fpu_to_mmx();
@@ -969,8 +991,8 @@ pub unsafe fn instr_660F2C(source: reg128, r: i32) {
     // cvttpd2pi mm, xmm/m128
     write_mmx_reg64(
         r,
-        sse_convert_with_truncation_f64_to_i32(source.f64_0[0]) as u32 as u64
-            | (sse_convert_with_truncation_f64_to_i32(source.f64_0[1]) as u32 as u64) << 32,
+        sse_convert_with_truncation_f64_to_i32(source.f64[0]) as u32 as u64
+            | (sse_convert_with_truncation_f64_to_i32(source.f64[1]) as u32 as u64) << 32,
     );
     transition_fpu_to_mmx();
 }
@@ -1024,8 +1046,8 @@ pub unsafe fn instr_0F2D_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660F2D(source: reg128, r: i32) {
     // cvtpd2pi mm, xmm/m128
     let result = [
-        sse_convert_f64_to_i32(source.f64_0[0]),
-        sse_convert_f64_to_i32(source.f64_0[1]),
+        sse_convert_f64_to_i32(source.f64[0]),
+        sse_convert_f64_to_i32(source.f64[1]),
     ];
     write_mmx_reg64(r, std::mem::transmute(result));
     transition_fpu_to_mmx();
@@ -1171,59 +1193,49 @@ pub unsafe fn instr_0F30() {
         dbg_log!("wrmsr ecx={:x} data={:x}:{:x}", index, high, low);
     }
 
-    if index == IA32_SYSENTER_CS {
-        *sysenter_cs = low & 0xFFFF
-    }
-    else if index == IA32_SYSENTER_EIP {
-        *sysenter_eip = low
-    }
-    else if index == IA32_SYSENTER_ESP {
-        *sysenter_esp = low
-    }
-    else if index == MSR_IA32_FEAT_CTL {
-        // linux 5.x
-    }
-    else if index == MSR_TEST_CTRL {
-        // linux 5.x
-    }
-    else if index == IA32_APIC_BASE_MSR {
-        dbg_assert!(
-            high == 0,
-            ("Changing APIC address (high 32 bits) not supported")
-        );
-        let address = low & !(IA32_APIC_BASE_BSP | IA32_APIC_BASE_EXTD | IA32_APIC_BASE_EN);
-        dbg_assert!(
-            address == APIC_ADDRESS,
-            ("Changing APIC address not supported")
-        );
-        dbg_assert!(low & IA32_APIC_BASE_EXTD == 0, "x2apic not supported");
-        *apic_enabled = low & IA32_APIC_BASE_EN == IA32_APIC_BASE_EN
-    }
-    else if index == IA32_TIME_STAMP_COUNTER {
-        set_tsc(low as u32, high as u32);
-    }
-    else if index == IA32_BIOS_SIGN_ID {
-        //
-    }
-    else if index == MSR_MISC_FEATURE_ENABLES {
-        // Linux 4, see: https://patchwork.kernel.org/patch/9528279/
-    }
-    else if index == IA32_MISC_ENABLE {
-        // Enable Misc. Processor Features
-    }
-    else if index == IA32_MCG_CAP {
-        // netbsd
-    }
-    else if index == IA32_KERNEL_GS_BASE {
-        // Only used in 64 bit mode (by SWAPGS), but set by kvm-unit-test
-        dbg_log!("GS Base written");
-    }
-    else if index == IA32_PAT {
-        //
-    }
-    else {
-        dbg_log!("Unknown msr: {:x}", index);
-        dbg_assert!(false);
+    match index {
+        IA32_SYSENTER_CS => *sysenter_cs = low & 0xFFFF,
+        IA32_SYSENTER_EIP => *sysenter_eip = low,
+        IA32_SYSENTER_ESP => *sysenter_esp = low,
+        IA32_FEAT_CTL => {}, // linux 5.x
+        MSR_TEST_CTRL => {}, // linux 5.x
+        IA32_APIC_BASE => {
+            dbg_assert!(
+                high == 0,
+                ("Changing APIC address (high 32 bits) not supported")
+            );
+            let address = low & !(IA32_APIC_BASE_BSP | IA32_APIC_BASE_EXTD | IA32_APIC_BASE_EN);
+            dbg_assert!(
+                address == APIC_ADDRESS,
+                ("Changing APIC address not supported")
+            );
+            dbg_assert!(low & IA32_APIC_BASE_EXTD == 0, "x2apic not supported");
+            *apic_enabled = low & IA32_APIC_BASE_EN == IA32_APIC_BASE_EN
+        },
+        IA32_TIME_STAMP_COUNTER => set_tsc(low as u32, high as u32),
+        IA32_BIOS_SIGN_ID => {},
+        MISC_FEATURE_ENABLES => {
+            // Linux 4, see: https://patchwork.kernel.org/patch/9528279/
+        },
+        IA32_MISC_ENABLE => {
+            // Enable Misc. Processor Features
+        },
+        IA32_MCG_CAP => {}, // netbsd
+        IA32_KERNEL_GS_BASE => {
+            // Only used in 64 bit mode (by SWAPGS), but set by kvm-unit-test
+            dbg_log!("GS Base written");
+        },
+        IA32_PAT => {},
+        IA32_SPEC_CTRL => {},      // linux 5.19
+        IA32_TSX_CTRL => {},       // linux 5.19
+        MSR_TSX_FORCE_ABORT => {}, // linux 5.19
+        IA32_MCU_OPT_CTRL => {},   // linux 5.19
+        MSR_AMD64_LS_CFG => {},    // linux 5.19
+        MSR_AMD64_DE_CFG => {},    // linux 6.1
+        _ => {
+            dbg_log!("Unknown msr: {:x}", index);
+            dbg_assert!(false);
+        },
     }
 }
 
@@ -1253,66 +1265,55 @@ pub unsafe fn instr_0F32() {
     let index = read_reg32(ECX);
     dbg_log!("rdmsr ecx={:x}", index);
 
-    let mut low: i32 = 0;
-    let mut high: i32 = 0;
+    let mut low = 0;
+    let mut high = 0;
 
-    if index == IA32_SYSENTER_CS {
-        low = *sysenter_cs
-    }
-    else if index == IA32_SYSENTER_EIP {
-        low = *sysenter_eip
-    }
-    else if index == IA32_SYSENTER_ESP {
-        low = *sysenter_esp
-    }
-    else if index == IA32_TIME_STAMP_COUNTER {
-        let tsc = read_tsc();
-        low = tsc as i32;
-        high = (tsc >> 32) as i32
-    }
-    else if index == MSR_IA32_FEAT_CTL {
-        // linux 5.x
-    }
-    else if index == MSR_TEST_CTRL {
-        // linux 5.x
-    }
-    else if index == IA32_PLATFORM_ID {
-    }
-    else if index == IA32_APIC_BASE_MSR {
-        if *acpi_enabled {
-            low = APIC_ADDRESS;
-            if *apic_enabled {
-                low |= IA32_APIC_BASE_EN
+    match index {
+        IA32_SYSENTER_CS => low = *sysenter_cs,
+        IA32_SYSENTER_EIP => low = *sysenter_eip,
+        IA32_SYSENTER_ESP => low = *sysenter_esp,
+        IA32_TIME_STAMP_COUNTER => {
+            let tsc = read_tsc();
+            low = tsc as i32;
+            high = (tsc >> 32) as i32
+        },
+        IA32_FEAT_CTL => {}, // linux 5.x
+        MSR_TEST_CTRL => {}, // linux 5.x
+        IA32_PLATFORM_ID => {},
+        IA32_APIC_BASE => {
+            if *acpi_enabled {
+                low = APIC_ADDRESS;
+                if *apic_enabled {
+                    low |= IA32_APIC_BASE_EN
+                }
             }
-        }
-    }
-    else if index == IA32_BIOS_SIGN_ID {
-    }
-    else if index == MSR_PLATFORM_INFO {
-        low = 1 << 8
-    }
-    else if index == MSR_MISC_FEATURE_ENABLES {
-    }
-    else if index == IA32_MISC_ENABLE {
-        // Enable Misc. Processor Features
-        low = 1 << 0; // fast string
-    }
-    else if index == IA32_RTIT_CTL {
-        // linux4
-    }
-    else if index == MSR_SMI_COUNT {
-    }
-    else if index == IA32_MCG_CAP {
-        // netbsd
-    }
-    else if index == IA32_PAT {
-        //
-    }
-    else if index == MSR_PKG_C2_RESIDENCY {
-    }
-    else {
-        dbg_log!("Unknown msr: {:x}", index);
-        dbg_assert!(false);
+        },
+        IA32_BIOS_SIGN_ID => {},
+        MSR_PLATFORM_INFO => low = 1 << 8,
+        MISC_FEATURE_ENABLES => {},
+        IA32_MISC_ENABLE => {
+            // Enable Misc. Processor Features
+            low = 1 << 0; // fast string
+        },
+        IA32_RTIT_CTL => {
+            // linux4
+        },
+        MSR_SMI_COUNT => {},
+        IA32_MCG_CAP => {
+            // netbsd
+        },
+        IA32_PAT => {},
+        MSR_PKG_C2_RESIDENCY => {},
+        IA32_SPEC_CTRL => {},      // linux 5.19
+        IA32_TSX_CTRL => {},       // linux 5.19
+        MSR_TSX_FORCE_ABORT => {}, // linux 5.19
+        IA32_MCU_OPT_CTRL => {},   // linux 5.19
+        MSR_AMD64_LS_CFG => {},    // linux 5.19
+        MSR_AMD64_DE_CFG => {},    // linux 6.1
+        _ => {
+            dbg_log!("Unknown msr: {:x}", index);
+            dbg_assert!(false);
+        },
     }
 
     write_reg32(EAX, low);
@@ -1339,6 +1340,7 @@ pub unsafe fn instr_0F34() {
         *segment_is_null.offset(CS as isize) = false;
         *segment_limits.offset(CS as isize) = -1i32 as u32;
         *segment_offsets.offset(CS as isize) = 0;
+        *segment_access_bytes.offset(CS as isize) = 0x80 | (0 << 5) | 0x10 | 0x08 | 0x02; // P dpl0 S E RW
         update_cs_size(true);
         *cpl = 0;
         cpl_changed();
@@ -1346,7 +1348,9 @@ pub unsafe fn instr_0F34() {
         *segment_is_null.offset(SS as isize) = false;
         *segment_limits.offset(SS as isize) = -1i32 as u32;
         *segment_offsets.offset(SS as isize) = 0;
+        *segment_access_bytes.offset(SS as isize) = 0x80 | (0 << 5) | 0x10 | 0x02; // P dpl0 S RW
         *stack_size_32 = true;
+        update_state_flags();
         return;
     };
 }
@@ -1365,6 +1369,7 @@ pub unsafe fn instr_0F35() {
         *segment_is_null.offset(CS as isize) = false;
         *segment_limits.offset(CS as isize) = -1i32 as u32;
         *segment_offsets.offset(CS as isize) = 0;
+        *segment_access_bytes.offset(CS as isize) = 0x80 | (3 << 5) | 0x10 | 0x08 | 0x02; // P dpl3 S E RW
         update_cs_size(true);
         *cpl = 3;
         cpl_changed();
@@ -1372,7 +1377,9 @@ pub unsafe fn instr_0F35() {
         *segment_is_null.offset(SS as isize) = false;
         *segment_limits.offset(SS as isize) = -1i32 as u32;
         *segment_offsets.offset(SS as isize) = 0;
+        *segment_access_bytes.offset(SS as isize) = 0x80 | (3 << 5) | 0x10 | 0x02; // P dpl3 S RW
         *stack_size_32 = true;
+        update_state_flags();
         return;
     };
 }
@@ -1533,10 +1540,10 @@ pub unsafe fn instr32_0F4F_reg(r1: i32, r: i32) { cmovcc32(!test_le(), read_reg3
 pub unsafe fn instr_0F50_reg(r1: i32, r2: i32) {
     // movmskps r, xmm
     let source = read_xmm128s(r1);
-    let data = (source.u32_0[0] >> 31
-        | source.u32_0[1] >> 31 << 1
-        | source.u32_0[2] >> 31 << 2
-        | source.u32_0[3] >> 31 << 3) as i32;
+    let data = (source.u32[0] >> 31
+        | source.u32[1] >> 31 << 1
+        | source.u32[2] >> 31 << 2
+        | source.u32[3] >> 31 << 3) as i32;
     write_reg32(r2, data);
 }
 #[no_mangle]
@@ -1545,7 +1552,7 @@ pub unsafe fn instr_0F50_mem(_addr: i32, _r1: i32) { trigger_ud(); }
 pub unsafe fn instr_660F50_reg(r1: i32, r2: i32) {
     // movmskpd r, xmm
     let source = read_xmm128s(r1);
-    let data = (source.u32_0[1] >> 31 | source.u32_0[3] >> 31 << 1) as i32;
+    let data = (source.u32[1] >> 31 | source.u32[3] >> 31 << 1) as i32;
     write_reg32(r2, data);
 }
 #[no_mangle]
@@ -1556,11 +1563,11 @@ pub unsafe fn instr_0F51(source: reg128, r: i32) {
     // sqrtps xmm, xmm/mem128
     // XXX: Should round according to round control
     let result = reg128 {
-        f32_0: [
-            source.f32_0[0].sqrt(),
-            source.f32_0[1].sqrt(),
-            source.f32_0[2].sqrt(),
-            source.f32_0[3].sqrt(),
+        f32: [
+            source.f32[0].sqrt(),
+            source.f32[1].sqrt(),
+            source.f32[2].sqrt(),
+            source.f32[3].sqrt(),
         ],
     };
     write_xmm_reg128(r, result);
@@ -1574,7 +1581,7 @@ pub unsafe fn instr_660F51(source: reg128, r: i32) {
     // sqrtpd xmm, xmm/mem128
     // XXX: Should round according to round control
     let result = reg128 {
-        f64_0: [source.f64_0[0].sqrt(), source.f64_0[1].sqrt()],
+        f64: [source.f64[0].sqrt(), source.f64[1].sqrt()],
     };
     write_xmm_reg128(r, result);
 }
@@ -1607,11 +1614,11 @@ pub unsafe fn instr_F30F51_mem(addr: i32, r: i32) {
 pub unsafe fn instr_0F52(source: reg128, r: i32) {
     // rcpps xmm1, xmm2/m128
     let result = reg128 {
-        f32_0: [
-            1.0 / source.f32_0[0].sqrt(),
-            1.0 / source.f32_0[1].sqrt(),
-            1.0 / source.f32_0[2].sqrt(),
-            1.0 / source.f32_0[3].sqrt(),
+        f32: [
+            1.0 / source.f32[0].sqrt(),
+            1.0 / source.f32[1].sqrt(),
+            1.0 / source.f32[2].sqrt(),
+            1.0 / source.f32[3].sqrt(),
         ],
     };
     write_xmm_reg128(r, result);
@@ -1634,11 +1641,11 @@ pub unsafe fn instr_F30F52_mem(addr: i32, r: i32) {
 pub unsafe fn instr_0F53(source: reg128, r: i32) {
     // rcpps xmm, xmm/m128
     let result = reg128 {
-        f32_0: [
-            1.0 / source.f32_0[0],
-            1.0 / source.f32_0[1],
-            1.0 / source.f32_0[2],
-            1.0 / source.f32_0[3],
+        f32: [
+            1.0 / source.f32[0],
+            1.0 / source.f32[1],
+            1.0 / source.f32[2],
+            1.0 / source.f32[3],
         ],
     };
     write_xmm_reg128(r, result);
@@ -1743,11 +1750,11 @@ pub unsafe fn instr_0F58(source: reg128, r: i32) {
     // addps xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f32_0: [
-            source.f32_0[0] + destination.f32_0[0],
-            source.f32_0[1] + destination.f32_0[1],
-            source.f32_0[2] + destination.f32_0[2],
-            source.f32_0[3] + destination.f32_0[3],
+        f32: [
+            source.f32[0] + destination.f32[0],
+            source.f32[1] + destination.f32[1],
+            source.f32[2] + destination.f32[2],
+            source.f32[3] + destination.f32[3],
         ],
     };
     write_xmm_reg128(r, result);
@@ -1761,9 +1768,9 @@ pub unsafe fn instr_660F58(source: reg128, r: i32) {
     // addpd xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f64_0: [
-            source.f64_0[0] + destination.f64_0[0],
-            source.f64_0[1] + destination.f64_0[1],
+        f64: [
+            source.f64[0] + destination.f64[0],
+            source.f64[1] + destination.f64[1],
         ],
     };
     write_xmm_reg128(r, result);
@@ -1799,11 +1806,11 @@ pub unsafe fn instr_0F59(source: reg128, r: i32) {
     // mulps xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f32_0: [
-            source.f32_0[0] * destination.f32_0[0],
-            source.f32_0[1] * destination.f32_0[1],
-            source.f32_0[2] * destination.f32_0[2],
-            source.f32_0[3] * destination.f32_0[3],
+        f32: [
+            source.f32[0] * destination.f32[0],
+            source.f32[1] * destination.f32[1],
+            source.f32[2] * destination.f32[2],
+            source.f32[3] * destination.f32[3],
         ],
     };
     write_xmm_reg128(r, result);
@@ -1817,9 +1824,9 @@ pub unsafe fn instr_660F59(source: reg128, r: i32) {
     // mulpd xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f64_0: [
-            source.f64_0[0] * destination.f64_0[0],
-            source.f64_0[1] * destination.f64_0[1],
+        f64: [
+            source.f64[0] * destination.f64[0],
+            source.f64[1] * destination.f64[1],
         ],
     };
     write_xmm_reg128(r, result);
@@ -1855,7 +1862,7 @@ pub unsafe fn instr_0F5A(source: u64, r: i32) {
     // cvtps2pd xmm1, xmm2/m64
     let source: [f32; 2] = std::mem::transmute(source);
     let result = reg128 {
-        f64_0: [source[0] as f64, source[1] as f64],
+        f64: [source[0] as f64, source[1] as f64],
     };
     write_xmm_reg128(r, result);
 }
@@ -1868,7 +1875,7 @@ pub unsafe fn instr_660F5A(source: reg128, r: i32) {
     // cvtpd2ps xmm1, xmm2/m128
     let result = reg128 {
         // XXX: These conversions are lossy and should round according to the round control
-        f32_0: [source.f64_0[0] as f32, source.f64_0[1] as f32, 0., 0.],
+        f32: [source.f64[0] as f32, source.f64[1] as f32, 0., 0.],
     };
     write_xmm_reg128(r, result);
 }
@@ -1901,12 +1908,12 @@ pub unsafe fn instr_0F5B(source: reg128, r: i32) {
     // cvtdq2ps xmm1, xmm2/m128
     // XXX: Should round according to round control
     let result = reg128 {
-        f32_0: [
+        f32: [
             // XXX: Precision exception
-            source.i32_0[0] as f32,
-            source.i32_0[1] as f32,
-            source.i32_0[2] as f32,
-            source.i32_0[3] as f32,
+            source.i32[0] as f32,
+            source.i32[1] as f32,
+            source.i32[2] as f32,
+            source.i32[3] as f32,
         ],
     };
     write_xmm_reg128(r, result);
@@ -1919,12 +1926,12 @@ pub unsafe fn instr_0F5B_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660F5B(source: reg128, r: i32) {
     // cvtps2dq xmm1, xmm2/m128
     let result = reg128 {
-        i32_0: [
+        i32: [
             // XXX: Precision exception
-            sse_convert_f32_to_i32(source.f32_0[0]),
-            sse_convert_f32_to_i32(source.f32_0[1]),
-            sse_convert_f32_to_i32(source.f32_0[2]),
-            sse_convert_f32_to_i32(source.f32_0[3]),
+            sse_convert_f32_to_i32(source.f32[0]),
+            sse_convert_f32_to_i32(source.f32[1]),
+            sse_convert_f32_to_i32(source.f32[2]),
+            sse_convert_f32_to_i32(source.f32[3]),
         ],
     };
     write_xmm_reg128(r, result);
@@ -1937,11 +1944,11 @@ pub unsafe fn instr_660F5B_mem(addr: i32, r: i32) {
 pub unsafe fn instr_F30F5B(source: reg128, r: i32) {
     // cvttps2dq xmm1, xmm2/m128
     let result = reg128 {
-        i32_0: [
-            sse_convert_with_truncation_f32_to_i32(source.f32_0[0]),
-            sse_convert_with_truncation_f32_to_i32(source.f32_0[1]),
-            sse_convert_with_truncation_f32_to_i32(source.f32_0[2]),
-            sse_convert_with_truncation_f32_to_i32(source.f32_0[3]),
+        i32: [
+            sse_convert_with_truncation_f32_to_i32(source.f32[0]),
+            sse_convert_with_truncation_f32_to_i32(source.f32[1]),
+            sse_convert_with_truncation_f32_to_i32(source.f32[2]),
+            sse_convert_with_truncation_f32_to_i32(source.f32[3]),
         ],
     };
     write_xmm_reg128(r, result);
@@ -1956,11 +1963,11 @@ pub unsafe fn instr_0F5C(source: reg128, r: i32) {
     // subps xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f32_0: [
-            destination.f32_0[0] - source.f32_0[0],
-            destination.f32_0[1] - source.f32_0[1],
-            destination.f32_0[2] - source.f32_0[2],
-            destination.f32_0[3] - source.f32_0[3],
+        f32: [
+            destination.f32[0] - source.f32[0],
+            destination.f32[1] - source.f32[1],
+            destination.f32[2] - source.f32[2],
+            destination.f32[3] - source.f32[3],
         ],
     };
     write_xmm_reg128(r, result);
@@ -1974,9 +1981,9 @@ pub unsafe fn instr_660F5C(source: reg128, r: i32) {
     // subpd xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f64_0: [
-            destination.f64_0[0] - source.f64_0[0],
-            destination.f64_0[1] - source.f64_0[1],
+        f64: [
+            destination.f64[0] - source.f64[0],
+            destination.f64[1] - source.f64[1],
         ],
     };
     write_xmm_reg128(r, result);
@@ -2011,11 +2018,11 @@ pub unsafe fn instr_0F5D(source: reg128, r: i32) {
     // minps xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f32_0: [
-            sse_min(destination.f32_0[0] as f64, source.f32_0[0] as f64) as f32,
-            sse_min(destination.f32_0[1] as f64, source.f32_0[1] as f64) as f32,
-            sse_min(destination.f32_0[2] as f64, source.f32_0[2] as f64) as f32,
-            sse_min(destination.f32_0[3] as f64, source.f32_0[3] as f64) as f32,
+        f32: [
+            sse_min(destination.f32[0] as f64, source.f32[0] as f64) as f32,
+            sse_min(destination.f32[1] as f64, source.f32[1] as f64) as f32,
+            sse_min(destination.f32[2] as f64, source.f32[2] as f64) as f32,
+            sse_min(destination.f32[3] as f64, source.f32[3] as f64) as f32,
         ],
     };
     write_xmm_reg128(r, result);
@@ -2029,9 +2036,9 @@ pub unsafe fn instr_660F5D(source: reg128, r: i32) {
     // minpd xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f64_0: [
-            sse_min(destination.f64_0[0], source.f64_0[0]),
-            sse_min(destination.f64_0[1], source.f64_0[1]),
+        f64: [
+            sse_min(destination.f64[0], source.f64[0]),
+            sse_min(destination.f64[1], source.f64[1]),
         ],
     };
     write_xmm_reg128(r, result);
@@ -2069,11 +2076,11 @@ pub unsafe fn instr_0F5E(source: reg128, r: i32) {
     // divps xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f32_0: [
-            destination.f32_0[0] / source.f32_0[0],
-            destination.f32_0[1] / source.f32_0[1],
-            destination.f32_0[2] / source.f32_0[2],
-            destination.f32_0[3] / source.f32_0[3],
+        f32: [
+            destination.f32[0] / source.f32[0],
+            destination.f32[1] / source.f32[1],
+            destination.f32[2] / source.f32[2],
+            destination.f32[3] / source.f32[3],
         ],
     };
     write_xmm_reg128(r, result);
@@ -2087,9 +2094,9 @@ pub unsafe fn instr_660F5E(source: reg128, r: i32) {
     // divpd xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f64_0: [
-            destination.f64_0[0] / source.f64_0[0],
-            destination.f64_0[1] / source.f64_0[1],
+        f64: [
+            destination.f64[0] / source.f64[0],
+            destination.f64[1] / source.f64[1],
         ],
     };
     write_xmm_reg128(r, result);
@@ -2124,11 +2131,11 @@ pub unsafe fn instr_0F5F(source: reg128, r: i32) {
     // maxps xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f32_0: [
-            sse_max(destination.f32_0[0] as f64, source.f32_0[0] as f64) as f32,
-            sse_max(destination.f32_0[1] as f64, source.f32_0[1] as f64) as f32,
-            sse_max(destination.f32_0[2] as f64, source.f32_0[2] as f64) as f32,
-            sse_max(destination.f32_0[3] as f64, source.f32_0[3] as f64) as f32,
+        f32: [
+            sse_max(destination.f32[0] as f64, source.f32[0] as f64) as f32,
+            sse_max(destination.f32[1] as f64, source.f32[1] as f64) as f32,
+            sse_max(destination.f32[2] as f64, source.f32[2] as f64) as f32,
+            sse_max(destination.f32[3] as f64, source.f32[3] as f64) as f32,
         ],
     };
     write_xmm_reg128(r, result);
@@ -2142,9 +2149,9 @@ pub unsafe fn instr_660F5F(source: reg128, r: i32) {
     // maxpd xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        f64_0: [
-            sse_max(destination.f64_0[0], source.f64_0[0]),
-            sse_max(destination.f64_0[1], source.f64_0[1]),
+        f64: [
+            sse_max(destination.f64[0], source.f64[0]),
+            sse_max(destination.f64[1], source.f64[1]),
         ],
     };
     write_xmm_reg128(r, result);
@@ -2200,10 +2207,10 @@ pub unsafe fn instr_660F60(source: reg128, r: i32) {
     // punpcklbw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination: [u8; 8] = std::mem::transmute(read_xmm64s(r));
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u8_0[2 * i + 0] = destination[i];
-        result.u8_0[2 * i + 1] = source.u8_0[i];
+        result.u8[2 * i + 0] = destination[i];
+        result.u8[2 * i + 1] = source.u8[i];
     }
     write_xmm_reg128(r, result);
 }
@@ -2233,10 +2240,10 @@ pub unsafe fn instr_660F61(source: reg128, r: i32) {
     // punpcklwd xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination: [u16; 4] = std::mem::transmute(read_xmm64s(r));
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..4 {
-        result.u16_0[2 * i + 0] = destination[i];
-        result.u16_0[2 * i + 1] = source.u16_0[i];
+        result.u16[2 * i + 0] = destination[i];
+        result.u16[2 * i + 1] = source.u16[i];
     }
     write_xmm_reg128(r, result);
 }
@@ -2258,17 +2265,16 @@ pub unsafe fn instr_0F62_reg(r1: i32, r2: i32) { instr_0F62(read_mmx32s(r1), r2)
 pub unsafe fn instr_0F62_mem(addr: i32, r: i32) {
     instr_0F62(return_on_pagefault!(safe_read32s(addr)), r);
 }
-#[no_mangle]
 pub unsafe fn instr_660F62(source: reg128, r: i32) {
     // punpckldq xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        destination.u32_0[0] as i32,
-        source.u32_0[0] as i32,
-        destination.u32_0[1] as i32,
-        source.u32_0[1] as i32,
+        destination.u32[0] as i32,
+        source.u32[0] as i32,
+        destination.u32[1] as i32,
+        source.u32[1] as i32,
     );
 }
 pub unsafe fn instr_660F62_reg(r1: i32, r2: i32) { instr_660F62(read_xmm128s(r1), r2); }
@@ -2297,10 +2303,10 @@ pub unsafe fn instr_660F63(source: reg128, r: i32) {
     // packsswb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u8_0[i + 0] = saturate_sw_to_sb(destination.u16_0[i] as i32);
-        result.u8_0[i + 8] = saturate_sw_to_sb(source.u16_0[i] as i32);
+        result.u8[i + 0] = saturate_sw_to_sb(destination.u16[i] as i32);
+        result.u8[i + 8] = saturate_sw_to_sb(source.u16[i] as i32);
     }
     write_xmm_reg128(r, result)
 }
@@ -2329,9 +2335,9 @@ pub unsafe fn instr_660F64(source: reg128, r: i32) {
     // pcmpgtb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] = if destination.i8_0[i] as i32 > source.i8_0[i] as i32 { 255 } else { 0 };
+        result.u8[i] = if destination.i8[i] as i32 > source.i8[i] as i32 { 255 } else { 0 };
     }
     write_xmm_reg128(r, result);
 }
@@ -2360,9 +2366,9 @@ pub unsafe fn instr_660F65(source: reg128, r: i32) {
     // pcmpgtw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = if destination.i16_0[i] > source.i16_0[i] { 0xFFFF } else { 0 };
+        result.u16[i] = if destination.i16[i] > source.i16[i] { 0xFFFF } else { 0 };
     }
     write_xmm_reg128(r, result);
 }
@@ -2393,10 +2399,10 @@ pub unsafe fn instr_660F66(source: reg128, r: i32) {
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        if destination.i32_0[0] > source.i32_0[0] { -1 } else { 0 },
-        if destination.i32_0[1] > source.i32_0[1] { -1 } else { 0 },
-        if destination.i32_0[2] > source.i32_0[2] { -1 } else { 0 },
-        if destination.i32_0[3] > source.i32_0[3] { -1 } else { 0 },
+        if destination.i32[0] > source.i32[0] { -1 } else { 0 },
+        if destination.i32[1] > source.i32[1] { -1 } else { 0 },
+        if destination.i32[2] > source.i32[2] { -1 } else { 0 },
+        if destination.i32[3] > source.i32[3] { -1 } else { 0 },
     );
 }
 pub unsafe fn instr_660F66_reg(r1: i32, r2: i32) { instr_660F66(read_xmm128s(r1), r2); }
@@ -2425,10 +2431,10 @@ pub unsafe fn instr_660F67(source: reg128, r: i32) {
     // packuswb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u8_0[i + 0] = saturate_sw_to_ub(destination.u16_0[i]);
-        result.u8_0[i + 8] = saturate_sw_to_ub(source.u16_0[i]);
+        result.u8[i + 0] = saturate_sw_to_ub(destination.u16[i]);
+        result.u8[i + 8] = saturate_sw_to_ub(source.u16[i]);
     }
     write_xmm_reg128(r, result);
 }
@@ -2458,10 +2464,10 @@ pub unsafe fn instr_660F68(source: reg128, r: i32) {
     // punpckhbw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u8_0[2 * i + 0] = destination.u8_0[i + 8];
-        result.u8_0[2 * i + 1] = source.u8_0[i + 8];
+        result.u8[2 * i + 0] = destination.u8[i + 8];
+        result.u8[2 * i + 1] = source.u8[i + 8];
     }
     write_xmm_reg128(r, result);
 }
@@ -2487,10 +2493,10 @@ pub unsafe fn instr_660F69(source: reg128, r: i32) {
     // punpckhwd xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..4 {
-        result.u16_0[2 * i + 0] = destination.u16_0[i + 4];
-        result.u16_0[2 * i + 1] = source.u16_0[i + 4];
+        result.u16[2 * i + 0] = destination.u16[i + 4];
+        result.u16[2 * i + 1] = source.u16[i + 4];
     }
     write_xmm_reg128(r, result);
 }
@@ -2516,10 +2522,10 @@ pub unsafe fn instr_660F6A(source: reg128, r: i32) {
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        destination.u32_0[2] as i32,
-        source.u32_0[2] as i32,
-        destination.u32_0[3] as i32,
-        source.u32_0[3] as i32,
+        destination.u32[2] as i32,
+        source.u32[2] as i32,
+        destination.u32[3] as i32,
+        source.u32[3] as i32,
     );
 }
 pub unsafe fn instr_660F6A_reg(r1: i32, r2: i32) { instr_660F6A(read_xmm128s(r1), r2); }
@@ -2548,10 +2554,10 @@ pub unsafe fn instr_660F6B(source: reg128, r: i32) {
     // packssdw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..4 {
-        result.u16_0[i + 0] = saturate_sd_to_sw(destination.u32_0[i]);
-        result.u16_0[i + 4] = saturate_sd_to_sw(source.u32_0[i]);
+        result.u16[i + 0] = saturate_sd_to_sw(destination.u32[i]);
+        result.u16[i + 4] = saturate_sd_to_sw(source.u32[i]);
     }
     write_xmm_reg128(r, result);
 }
@@ -2570,10 +2576,10 @@ pub unsafe fn instr_660F6C(source: reg128, r: i32) {
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        destination.u32_0[0] as i32,
-        destination.u32_0[1] as i32,
-        source.u32_0[0] as i32,
-        source.u32_0[1] as i32,
+        destination.u32[0] as i32,
+        destination.u32[1] as i32,
+        source.u32[0] as i32,
+        source.u32[1] as i32,
     );
 }
 pub unsafe fn instr_660F6C_reg(r1: i32, r2: i32) { instr_660F6C(read_xmm128s(r1), r2); }
@@ -2591,16 +2597,17 @@ pub unsafe fn instr_660F6D(source: reg128, r: i32) {
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        destination.u32_0[2] as i32,
-        destination.u32_0[3] as i32,
-        source.u32_0[2] as i32,
-        source.u32_0[3] as i32,
+        destination.u32[2] as i32,
+        destination.u32[3] as i32,
+        source.u32[2] as i32,
+        source.u32[3] as i32,
     );
 }
 pub unsafe fn instr_660F6D_reg(r1: i32, r2: i32) { instr_660F6D(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660F6D_mem(addr: i32, r: i32) {
     instr_660F6D(return_on_pagefault!(safe_read128s(addr)), r);
 }
+
 #[no_mangle]
 pub unsafe fn instr_0F6E(source: i32, r: i32) {
     // movd mm, r/m32
@@ -2611,7 +2618,6 @@ pub unsafe fn instr_0F6E_reg(r1: i32, r2: i32) { instr_0F6E(read_reg32(r1), r2);
 pub unsafe fn instr_0F6E_mem(addr: i32, r: i32) {
     instr_0F6E(return_on_pagefault!(safe_read32s(addr)), r);
 }
-#[no_mangle]
 pub unsafe fn instr_660F6E(source: i32, r: i32) {
     // movd mm, r/m32
     write_xmm128(r, source, 0, 0, 0);
@@ -2663,16 +2669,15 @@ pub unsafe fn instr_0F70_reg(r1: i32, r2: i32, imm: i32) { instr_0F70(read_mmx64
 pub unsafe fn instr_0F70_mem(addr: i32, r: i32, imm: i32) {
     instr_0F70(return_on_pagefault!(safe_read64s(addr)), r, imm);
 }
-#[no_mangle]
 pub unsafe fn instr_660F70(source: reg128, r: i32, imm8: i32) {
     // pshufd xmm, xmm/mem128, imm8
     // XXX: Aligned access or #gp
     write_xmm128(
         r,
-        source.u32_0[(imm8 & 3) as usize] as i32,
-        source.u32_0[(imm8 >> 2 & 3) as usize] as i32,
-        source.u32_0[(imm8 >> 4 & 3) as usize] as i32,
-        source.u32_0[(imm8 >> 6 & 3) as usize] as i32,
+        source.u32[(imm8 & 3) as usize] as i32,
+        source.u32[(imm8 >> 2 & 3) as usize] as i32,
+        source.u32[(imm8 >> 4 & 3) as usize] as i32,
+        source.u32[(imm8 >> 6 & 3) as usize] as i32,
     );
 }
 pub unsafe fn instr_660F70_reg(r1: i32, r2: i32, imm: i32) {
@@ -2688,12 +2693,12 @@ pub unsafe fn instr_F20F70(source: reg128, r: i32, imm8: i32) {
     // XXX: Aligned access or #gp
     write_xmm128(
         r,
-        source.u16_0[(imm8 & 3) as usize] as i32
-            | (source.u16_0[(imm8 >> 2 & 3) as usize] as i32) << 16,
-        source.u16_0[(imm8 >> 4 & 3) as usize] as i32
-            | (source.u16_0[(imm8 >> 6 & 3) as usize] as i32) << 16,
-        source.u32_0[2] as i32,
-        source.u32_0[3] as i32,
+        source.u16[(imm8 & 3) as usize] as i32
+            | (source.u16[(imm8 >> 2 & 3) as usize] as i32) << 16,
+        source.u16[(imm8 >> 4 & 3) as usize] as i32
+            | (source.u16[(imm8 >> 6 & 3) as usize] as i32) << 16,
+        source.u32[2] as i32,
+        source.u32[3] as i32,
     );
 }
 pub unsafe fn instr_F20F70_reg(r1: i32, r2: i32, imm: i32) {
@@ -2708,12 +2713,12 @@ pub unsafe fn instr_F30F70(source: reg128, r: i32, imm8: i32) {
     // XXX: Aligned access or #gp
     write_xmm128(
         r,
-        source.u32_0[0] as i32,
-        source.u32_0[1] as i32,
-        source.u16_0[(imm8 & 3 | 4) as usize] as i32
-            | (source.u16_0[(imm8 >> 2 & 3 | 4) as usize] as i32) << 16,
-        source.u16_0[(imm8 >> 4 & 3 | 4) as usize] as i32
-            | (source.u16_0[(imm8 >> 6 & 3 | 4) as usize] as i32) << 16,
+        source.u32[0] as i32,
+        source.u32[1] as i32,
+        source.u16[(imm8 & 3 | 4) as usize] as i32
+            | (source.u16[(imm8 >> 2 & 3 | 4) as usize] as i32) << 16,
+        source.u16[(imm8 >> 4 & 3 | 4) as usize] as i32
+            | (source.u16[(imm8 >> 6 & 3 | 4) as usize] as i32) << 16,
     );
 }
 pub unsafe fn instr_F30F70_reg(r1: i32, r2: i32, imm: i32) {
@@ -2819,18 +2824,18 @@ pub unsafe fn instr_660F73_2_reg(r: i32, imm8: i32) {
 pub unsafe fn instr_660F73_3_reg(r: i32, imm8: i32) {
     // psrldq xmm, imm8
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     if imm8 == 0 {
         return;
     }
     let shift = (if imm8 > 15 { 128 } else { imm8 << 3 }) as u32;
     if shift <= 63 {
-        result.u64_0[0] = destination.u64_0[0] >> shift | destination.u64_0[1] << (64 - shift);
-        result.u64_0[1] = destination.u64_0[1] >> shift
+        result.u64[0] = destination.u64[0] >> shift | destination.u64[1] << (64 - shift);
+        result.u64[1] = destination.u64[1] >> shift
     }
     else if shift <= 127 {
-        result.u64_0[0] = destination.u64_0[1] >> shift.wrapping_sub(64);
-        result.u64_0[1] = 0
+        result.u64[0] = destination.u64[1] >> (shift - 64);
+        result.u64[1] = 0
     }
     write_xmm_reg128(r, result);
 }
@@ -2846,15 +2851,15 @@ pub unsafe fn instr_660F73_7_reg(r: i32, imm8: i32) {
         return;
     }
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     let shift = (if imm8 > 15 { 128 } else { imm8 << 3 }) as u32;
     if shift <= 63 {
-        result.u64_0[0] = destination.u64_0[0] << shift;
-        result.u64_0[1] = destination.u64_0[1] << shift | destination.u64_0[0] >> (64 - shift)
+        result.u64[0] = destination.u64[0] << shift;
+        result.u64[1] = destination.u64[1] << shift | destination.u64[0] >> (64 - shift)
     }
     else if shift <= 127 {
-        result.u64_0[0] = 0;
-        result.u64_0[1] = destination.u64_0[0] << shift.wrapping_sub(64)
+        result.u64[0] = 0;
+        result.u64[1] = destination.u64[0] << (shift - 64)
     }
     write_xmm_reg128(r, result);
 }
@@ -2880,9 +2885,9 @@ pub unsafe fn instr_660F74(source: reg128, r: i32) {
     // pcmpeqb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] = if source.u8_0[i] == destination.u8_0[i] { 255 } else { 0 }
+        result.u8[i] = if source.u8[i] == destination.u8[i] { 255 } else { 0 }
     }
     write_xmm_reg128(r, result);
 }
@@ -2911,10 +2916,10 @@ pub unsafe fn instr_660F75(source: reg128, r: i32) {
     // pcmpeqw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] =
-            (if source.u16_0[i] as i32 == destination.u16_0[i] as i32 { 0xFFFF } else { 0 }) as u16;
+        result.u16[i] =
+            (if source.u16[i] as i32 == destination.u16[i] as i32 { 0xFFFF } else { 0 }) as u16;
     }
     write_xmm_reg128(r, result);
 }
@@ -2943,9 +2948,9 @@ pub unsafe fn instr_660F76(source: reg128, r: i32) {
     // pcmpeqd xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..4 {
-        result.i32_0[i] = if source.u32_0[i] == destination.u32_0[i] { -1 } else { 0 }
+        result.i32[i] = if source.u32[i] == destination.u32[i] { -1 } else { 0 }
     }
     write_xmm_reg128(r, result);
 }
@@ -2958,6 +2963,7 @@ pub unsafe fn instr_0F77() {
     // emms
     fpu_set_tag_word(0xFFFF);
 }
+
 #[no_mangle]
 pub unsafe fn instr_0F78() { unimplemented_sse(); }
 #[no_mangle]
@@ -2966,10 +2972,91 @@ pub unsafe fn instr_0F79() { unimplemented_sse(); }
 pub unsafe fn instr_0F7A() { unimplemented_sse(); }
 #[no_mangle]
 pub unsafe fn instr_0F7B() { unimplemented_sse(); }
+
 #[no_mangle]
 pub unsafe fn instr_0F7C() { unimplemented_sse(); }
 #[no_mangle]
 pub unsafe fn instr_0F7D() { unimplemented_sse(); }
+
+#[no_mangle]
+pub unsafe fn instr_660F7C(source: reg128, r: i32) {
+    // haddpd xmm1, xmm2/m128
+    let destination = read_xmm128s(r);
+    write_xmm_reg128(
+        r,
+        reg128 {
+            f64: [
+                destination.f64[0] + destination.f64[1],
+                source.f64[0] + source.f64[1],
+            ],
+        },
+    );
+}
+pub unsafe fn instr_660F7C_reg(r1: i32, r2: i32) { instr_660F7C(read_xmm128s(r1), r2); }
+pub unsafe fn instr_660F7C_mem(addr: i32, r: i32) {
+    instr_660F7C(return_on_pagefault!(safe_read128s(addr)), r);
+}
+#[no_mangle]
+pub unsafe fn instr_F20F7C(source: reg128, r: i32) {
+    // haddps xmm, xmm/mem128
+    let destination = read_xmm128s(r);
+    write_xmm_reg128(
+        r,
+        reg128 {
+            f32: [
+                destination.f32[0] + destination.f32[1],
+                destination.f32[2] + destination.f32[3],
+                source.f32[0] + source.f32[1],
+                source.f32[2] + source.f32[3],
+            ],
+        },
+    );
+}
+pub unsafe fn instr_F20F7C_reg(r1: i32, r2: i32) { instr_F20F7C(read_xmm128s(r1), r2); }
+pub unsafe fn instr_F20F7C_mem(addr: i32, r: i32) {
+    instr_F20F7C(return_on_pagefault!(safe_read128s(addr)), r);
+}
+
+#[no_mangle]
+pub unsafe fn instr_660F7D(source: reg128, r: i32) {
+    // hsubpd xmm1, xmm2/m128
+    let destination = read_xmm128s(r);
+    write_xmm_reg128(
+        r,
+        reg128 {
+            f64: [
+                destination.f64[0] - destination.f64[1],
+                source.f64[0] - source.f64[1],
+            ],
+        },
+    );
+}
+pub unsafe fn instr_660F7D_reg(r1: i32, r2: i32) { instr_660F7D(read_xmm128s(r1), r2); }
+pub unsafe fn instr_660F7D_mem(addr: i32, r: i32) {
+    instr_660F7D(return_on_pagefault!(safe_read128s(addr)), r);
+}
+
+#[no_mangle]
+pub unsafe fn instr_F20F7D(source: reg128, r: i32) {
+    // hsubps xmm1, xmm2/m128
+    let destination = read_xmm128s(r);
+    write_xmm_reg128(
+        r,
+        reg128 {
+            f32: [
+                destination.f32[0] - destination.f32[1],
+                destination.f32[2] - destination.f32[3],
+                source.f32[0] - source.f32[1],
+                source.f32[2] - source.f32[3],
+            ],
+        },
+    );
+}
+pub unsafe fn instr_F20F7D_reg(r1: i32, r2: i32) { instr_F20F7D(read_xmm128s(r1), r2); }
+pub unsafe fn instr_F20F7D_mem(addr: i32, r: i32) {
+    instr_F20F7D(return_on_pagefault!(safe_read128s(addr)), r);
+}
+
 #[no_mangle]
 pub unsafe fn instr_0F7E(r: i32) -> i32 {
     // movd r/m32, mm
@@ -2995,7 +3082,6 @@ pub unsafe fn instr_F30F7E_mem(addr: i32, r: i32) {
     let data = return_on_pagefault!(safe_read64s(addr));
     write_xmm128_2(r, data, 0);
 }
-#[no_mangle]
 pub unsafe fn instr_F30F7E_reg(r1: i32, r2: i32) {
     // movq xmm, xmm/mem64
     write_xmm128_2(r2, read_xmm64s(r1), 0);
@@ -3105,9 +3191,7 @@ pub unsafe fn instr_0F9F_mem(addr: i32, _: i32) { setcc_mem(!test_le(), addr); }
 pub unsafe fn instr16_0FA0() {
     return_on_pagefault!(push16(*sreg.offset(FS as isize) as i32));
 }
-pub unsafe fn instr32_0FA0() {
-    return_on_pagefault!(push32(*sreg.offset(FS as isize) as i32));
-}
+pub unsafe fn instr32_0FA0() { return_on_pagefault!(push32_sreg(FS)) }
 #[no_mangle]
 pub unsafe fn instr16_0FA1() {
     if !switch_seg(FS, return_on_pagefault!(safe_read16(get_stack_pointer(0)))) {
@@ -3143,18 +3227,12 @@ pub unsafe fn instr_0FA2() {
     let mut edx = 0;
     let mut ebx = 0;
 
-    let winnt_fix = false;
     let level = read_reg32(EAX) as u32;
 
     match level {
         0 => {
-            // maximum supported level
-            if winnt_fix {
-                eax = 2;
-            }
-            else {
-                eax = 0x16;
-            }
+            // maximum supported level (default 0x16, overwritten to 2 as a workaround for Windows NT)
+            eax = cpuid_level as i32;
 
             ebx = 0x756E6547 | 0; // Genu
             edx = 0x49656E69 | 0; // ineI
@@ -3165,7 +3243,7 @@ pub unsafe fn instr_0FA2() {
             // pentium
             eax = 3 | 6 << 4 | 15 << 8;
             ebx = 1 << 16 | 8 << 8; // cpu count, clflush size
-            ecx = 1 << 23 | 1 << 30; // popcnt, rdrand
+            ecx = 1 << 0 | 1 << 23 | 1 << 30; // sse3, popcnt, rdrand
             let vme = 0 << 1;
             if ::config::VMWARE_HYPERVISOR_PORT {
                 ecx |= 1 << 31
@@ -3224,10 +3302,12 @@ pub unsafe fn instr_0FA2() {
         },
 
         7 => {
-            eax = 0; // maximum supported sub-level
-            ebx = 1 << 9; // enhanced REP MOVSB/STOSB
-            ecx = 0;
-            edx = 0;
+            if read_reg32(ECX) == 0 {
+                eax = 0; // maximum supported sub-level
+                ebx = 1 << 9; // enhanced REP MOVSB/STOSB
+                ecx = 0;
+                edx = 0;
+            }
         },
 
         0x80000000 => {
@@ -3270,11 +3350,11 @@ pub unsafe fn instr_0FA2() {
         },
     }
 
-    if level == 4 {
+    if level == 4 || level == 7 {
         dbg_log!(
-            "cpuid: eax={:08x} cl={:02x}",
+            "cpuid: eax={:08x} ecx={:02x}",
             read_reg32(EAX),
-            read_reg8(CL),
+            read_reg32(ECX),
         );
     }
     else if level != 0 && level != 2 && level != 0x80000000 {
@@ -3330,9 +3410,7 @@ pub unsafe fn instr_0FA7() { undefined_instruction(); }
 pub unsafe fn instr16_0FA8() {
     return_on_pagefault!(push16(*sreg.offset(GS as isize) as i32));
 }
-pub unsafe fn instr32_0FA8() {
-    return_on_pagefault!(push32(*sreg.offset(GS as isize) as i32));
-}
+pub unsafe fn instr32_0FA8() { return_on_pagefault!(push32_sreg(GS)) }
 #[no_mangle]
 pub unsafe fn instr16_0FA9() {
     if !switch_seg(GS, return_on_pagefault!(safe_read16(get_stack_pointer(0)))) {
@@ -3684,15 +3762,14 @@ pub unsafe fn instr32_0FC1_reg(r1: i32, r: i32) { write_reg32(r1, xadd32(read_re
 pub unsafe fn instr_0FC2(source: reg128, r: i32, imm8: i32) {
     // cmpps xmm, xmm/m128
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..4 {
-        result.i32_0[i] =
-            if sse_comparison(imm8, destination.f32_0[i] as f64, source.f32_0[i] as f64) {
-                -1
-            }
-            else {
-                0
-            };
+        result.i32[i] = if sse_comparison(imm8, destination.f32[i] as f64, source.f32[i] as f64) {
+            -1
+        }
+        else {
+            0
+        };
     }
     write_xmm_reg128(r, result);
 }
@@ -3705,11 +3782,9 @@ pub unsafe fn instr_660FC2(source: reg128, r: i32, imm8: i32) {
     // cmppd xmm, xmm/m128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        i64_0: [
-            (if sse_comparison(imm8, destination.f64_0[0], source.f64_0[0]) { -1 } else { 0 })
-                as i64,
-            (if sse_comparison(imm8, destination.f64_0[1], source.f64_0[1]) { -1 } else { 0 })
-                as i64,
+        i64: [
+            (if sse_comparison(imm8, destination.f64[0], source.f64[0]) { -1 } else { 0 }) as i64,
+            (if sse_comparison(imm8, destination.f64[1], source.f64[1]) { -1 } else { 0 }) as i64,
         ],
     };
     write_xmm_reg128(r, result);
@@ -3760,6 +3835,8 @@ pub unsafe fn instr_0FC3_mem(addr: i32, r: i32) {
     // movnti
     return_on_pagefault!(safe_write32(addr, read_reg32(r)));
 }
+
+#[no_mangle]
 pub unsafe fn instr_0FC4(source: i32, r: i32, imm8: i32) {
     // pinsrw mm, r32/m16, imm8
     let mut destination: [u16; 4] = std::mem::transmute(read_mmx64s(r));
@@ -3767,9 +3844,7 @@ pub unsafe fn instr_0FC4(source: i32, r: i32, imm8: i32) {
     write_mmx_reg64(r, std::mem::transmute(destination));
     transition_fpu_to_mmx();
 }
-#[no_mangle]
 pub unsafe fn instr_0FC4_reg(r1: i32, r2: i32, imm: i32) { instr_0FC4(read_reg32(r1), r2, imm); }
-#[no_mangle]
 pub unsafe fn instr_0FC4_mem(addr: i32, r: i32, imm: i32) {
     instr_0FC4(return_on_pagefault!(safe_read16(addr)), r, imm);
 }
@@ -3777,18 +3852,15 @@ pub unsafe fn instr_660FC4(source: i32, r: i32, imm8: i32) {
     // pinsrw xmm, r32/m16, imm8
     let mut destination = read_xmm128s(r);
     let index = (imm8 & 7) as u32;
-    destination.u16_0[index as usize] = (source & 0xFFFF) as u16;
+    destination.u16[index as usize] = (source & 0xFFFF) as u16;
     write_xmm_reg128(r, destination);
 }
-#[no_mangle]
 pub unsafe fn instr_660FC4_reg(r1: i32, r2: i32, imm: i32) {
     instr_660FC4(read_reg32(r1), r2, imm);
 }
-#[no_mangle]
 pub unsafe fn instr_660FC4_mem(addr: i32, r: i32, imm: i32) {
     instr_660FC4(return_on_pagefault!(safe_read16(addr)), r, imm);
 }
-#[no_mangle]
 pub unsafe fn instr_0FC5_mem(_addr: i32, _r: i32, _imm8: i32) { trigger_ud(); }
 #[no_mangle]
 pub unsafe fn instr_0FC5_reg(r1: i32, r2: i32, imm8: i32) {
@@ -3797,14 +3869,12 @@ pub unsafe fn instr_0FC5_reg(r1: i32, r2: i32, imm8: i32) {
     write_reg32(r2, data[(imm8 & 3) as usize] as i32);
     transition_fpu_to_mmx();
 }
-#[no_mangle]
 pub unsafe fn instr_660FC5_mem(_addr: i32, _r: i32, _imm8: i32) { trigger_ud(); }
-#[no_mangle]
 pub unsafe fn instr_660FC5_reg(r1: i32, r2: i32, imm8: i32) {
     // pextrw r32, xmm, imm8
     let data = read_xmm128s(r1);
     let index = (imm8 & 7) as u32;
-    let result = data.u16_0[index as usize] as u32;
+    let result = data.u16[index as usize] as u32;
     write_reg32(r2, result as i32);
 }
 
@@ -3815,10 +3885,10 @@ pub unsafe fn instr_0FC6(source: reg128, r: i32, imm8: i32) {
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        destination.u32_0[(imm8 & 3) as usize] as i32,
-        destination.u32_0[(imm8 >> 2 & 3) as usize] as i32,
-        source.u32_0[(imm8 >> 4 & 3) as usize] as i32,
-        source.u32_0[(imm8 >> 6 & 3) as usize] as i32,
+        destination.u32[(imm8 & 3) as usize] as i32,
+        destination.u32[(imm8 >> 2 & 3) as usize] as i32,
+        source.u32[(imm8 >> 4 & 3) as usize] as i32,
+        source.u32[(imm8 >> 6 & 3) as usize] as i32,
     );
 }
 pub unsafe fn instr_0FC6_reg(r1: i32, r2: i32, imm: i32) { instr_0FC6(read_xmm128s(r1), r2, imm); }
@@ -3831,9 +3901,9 @@ pub unsafe fn instr_660FC6(source: reg128, r: i32, imm8: i32) {
     // shufpd xmm, xmm/mem128
     let destination = read_xmm128s(r);
     let result = reg128 {
-        i64_0: [
-            destination.i64_0[imm8 as usize & 1],
-            source.i64_0[imm8 as usize >> 1 & 1],
+        i64: [
+            destination.i64[imm8 as usize & 1],
+            source.i64[imm8 as usize >> 1 & 1],
         ],
     };
     write_xmm_reg128(r, result);
@@ -3925,7 +3995,7 @@ pub unsafe fn instr_0FD1_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FD1(source: reg128, r: i32) {
     // psrlw xmm, xmm/m128
     // XXX: Aligned access or #gp
-    psrlw_r128(r, source.u64_0[0]);
+    psrlw_r128(r, source.u64[0]);
 }
 pub unsafe fn instr_660FD1_reg(r1: i32, r2: i32) { instr_660FD1(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660FD1_mem(addr: i32, r: i32) {
@@ -3944,7 +4014,7 @@ pub unsafe fn instr_0FD2_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FD2(source: reg128, r: i32) {
     // psrld xmm, xmm/m128
     // XXX: Aligned access or #gp
-    psrld_r128(r, source.u64_0[0]);
+    psrld_r128(r, source.u64[0]);
 }
 pub unsafe fn instr_660FD2_reg(r1: i32, r2: i32) { instr_660FD2(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660FD2_mem(addr: i32, r: i32) {
@@ -3962,7 +4032,7 @@ pub unsafe fn instr_0FD3_mem(addr: i32, r: i32) {
 #[no_mangle]
 pub unsafe fn instr_660FD3(source: reg128, r: i32) {
     // psrlq xmm, mm/m64
-    psrlq_r128(r, source.u64_0[0]);
+    psrlq_r128(r, source.u64[0]);
 }
 pub unsafe fn instr_660FD3_reg(r1: i32, r2: i32) { instr_660FD3(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660FD3_mem(addr: i32, r: i32) {
@@ -3984,9 +4054,9 @@ pub unsafe fn instr_660FD4(source: reg128, r: i32) {
     // paddq xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
-    result.u64_0[0] = destination.u64_0[0] + source.u64_0[0];
-    result.u64_0[1] = destination.u64_0[1] + source.u64_0[1];
+    let mut result = reg128 { i8: [0; 16] };
+    result.u64[0] = destination.u64[0] + source.u64[0];
+    result.u64[1] = destination.u64[1] + source.u64[1];
     write_xmm_reg128(r, result);
 }
 pub unsafe fn instr_660FD4_reg(r1: i32, r2: i32) { instr_660FD4(read_xmm128s(r1), r2); }
@@ -4014,9 +4084,9 @@ pub unsafe fn instr_660FD5(source: reg128, r: i32) {
     // pmullw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = destination.u16_0[i] * source.u16_0[i]
+        result.u16[i] = destination.u16[i] * source.u16[i]
     }
     write_xmm_reg128(r, result);
 }
@@ -4024,6 +4094,7 @@ pub unsafe fn instr_660FD5_reg(r1: i32, r2: i32) { instr_660FD5(read_xmm128s(r1)
 pub unsafe fn instr_660FD5_mem(addr: i32, r: i32) {
     instr_660FD5(return_on_pagefault!(safe_read128s(addr)), r);
 }
+
 #[no_mangle]
 pub unsafe fn instr_0FD6_mem(_addr: i32, _r: i32) { trigger_ud(); }
 #[no_mangle]
@@ -4032,18 +4103,17 @@ pub unsafe fn instr_660FD6_mem(addr: i32, r: i32) {
     // movq xmm/m64, xmm
     movl_r128_m64(addr, r);
 }
-#[no_mangle]
 pub unsafe fn instr_660FD6_reg(r1: i32, r2: i32) {
     // movq xmm/m64, xmm
-    let data = read_xmm64s(r2);
-    write_xmm128_2(r1, data, 0);
+    write_xmm128_2(r1, read_xmm64s(r2), 0);
 }
+
 #[no_mangle]
 pub unsafe fn instr_F20FD6_mem(_addr: i32, _r: i32) { trigger_ud(); }
 #[no_mangle]
 pub unsafe fn instr_F20FD6_reg(r1: i32, r2: i32) {
     // movdq2q mm, xmm
-    write_mmx_reg64(r2, read_xmm128s(r1).u64_0[0]);
+    write_mmx_reg64(r2, read_xmm128s(r1).u64[0]);
     transition_fpu_to_mmx();
 }
 #[no_mangle]
@@ -4052,9 +4122,10 @@ pub unsafe fn instr_F30FD6_mem(_addr: i32, _r: i32) { trigger_ud(); }
 pub unsafe fn instr_F30FD6_reg(r1: i32, r2: i32) {
     // movq2dq xmm, mm
     let source = read_mmx64s(r1);
-    write_xmm_reg128(r2, reg128 { u64_0: [source, 0] });
+    write_xmm_reg128(r2, reg128 { u64: [source, 0] });
     transition_fpu_to_mmx();
 }
+
 pub unsafe fn instr_0FD7_mem(_addr: i32, _r: i32) { trigger_ud(); }
 #[no_mangle]
 pub unsafe fn instr_0FD7(r1: i32) -> i32 {
@@ -4075,7 +4146,7 @@ pub unsafe fn instr_660FD7(r1: i32) -> i32 {
     let x = read_xmm128s(r1);
     let mut result = 0;
     for i in 0..16 {
-        result |= x.u8_0[i] as i32 >> 7 << i
+        result |= x.u8[i] as i32 >> 7 << i
     }
     result
 }
@@ -4100,10 +4171,9 @@ pub unsafe fn instr_0FD8_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FD8(source: reg128, r: i32) {
     // psubusb xmm, xmm/m128
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] =
-            saturate_sd_to_ub(destination.u8_0[i] as i32 - source.u8_0[i] as i32) as u8;
+        result.u8[i] = saturate_sd_to_ub(destination.u8[i] as i32 - source.u8[i] as i32) as u8;
     }
     write_xmm_reg128(r, result);
 }
@@ -4131,9 +4201,9 @@ pub unsafe fn instr_0FD9_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FD9(source: reg128, r: i32) {
     // psubusw xmm, xmm/m128
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = saturate_uw(destination.u16_0[i] as u32 - source.u16_0[i] as u32)
+        result.u16[i] = saturate_uw(destination.u16[i] as u32 - source.u16[i] as u32)
     }
     write_xmm_reg128(r, result);
 }
@@ -4162,9 +4232,9 @@ pub unsafe fn instr_660FDA(source: reg128, r: i32) {
     // pminub xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { u8_0: [0; 16] };
+    let mut result = reg128 { u8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] = u8::min(source.u8_0[i], destination.u8_0[i]);
+        result.u8[i] = u8::min(source.u8[i], destination.u8[i]);
     }
     write_xmm_reg128(r, result);
 }
@@ -4214,9 +4284,9 @@ pub unsafe fn instr_660FDC(source: reg128, r: i32) {
     // paddusb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] = saturate_ud_to_ub(source.u8_0[i] as u32 + destination.u8_0[i] as u32);
+        result.u8[i] = saturate_ud_to_ub(source.u8[i] as u32 + destination.u8[i] as u32);
     }
     write_xmm_reg128(r, result);
 }
@@ -4245,9 +4315,9 @@ pub unsafe fn instr_660FDD(source: reg128, r: i32) {
     // paddusw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = saturate_uw(source.u16_0[i] as u32 + destination.u16_0[i] as u32)
+        result.u16[i] = saturate_uw(source.u16[i] as u32 + destination.u16[i] as u32)
     }
     write_xmm_reg128(r, result);
 }
@@ -4276,9 +4346,9 @@ pub unsafe fn instr_660FDE(source: reg128, r: i32) {
     // pmaxub xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] = u8::max(source.u8_0[i], destination.u8_0[i]);
+        result.u8[i] = u8::max(source.u8[i], destination.u8[i]);
     }
     write_xmm_reg128(r, result);
 }
@@ -4328,9 +4398,9 @@ pub unsafe fn instr_660FE0(source: reg128, r: i32) {
     // pavgb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] = (destination.u8_0[i] as i32 + source.u8_0[i] as i32 + 1 >> 1) as u8;
+        result.u8[i] = (destination.u8[i] as i32 + source.u8[i] as i32 + 1 >> 1) as u8;
     }
     write_xmm_reg128(r, result);
 }
@@ -4351,7 +4421,7 @@ pub unsafe fn instr_0FE1_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FE1(source: reg128, r: i32) {
     // psraw xmm, xmm/m128
     // XXX: Aligned access or #gp
-    psraw_r128(r, source.u64_0[0]);
+    psraw_r128(r, source.u64[0]);
 }
 pub unsafe fn instr_660FE1_reg(r1: i32, r2: i32) { instr_660FE1(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660FE1_mem(addr: i32, r: i32) {
@@ -4370,7 +4440,7 @@ pub unsafe fn instr_0FE2_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FE2(source: reg128, r: i32) {
     // psrad xmm, xmm/m128
     // XXX: Aligned access or #gp
-    psrad_r128(r, source.u64_0[0]);
+    psrad_r128(r, source.u64[0]);
 }
 pub unsafe fn instr_660FE2_reg(r1: i32, r2: i32) { instr_660FE2(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660FE2_mem(addr: i32, r: i32) {
@@ -4398,8 +4468,7 @@ pub unsafe fn instr_660FE3(source: reg128, r: i32) {
     // XXX: Aligned access or #gp
     let mut destination = read_xmm128s(r);
     for i in 0..8 {
-        destination.u16_0[i] =
-            (destination.u16_0[i] as i32 + source.u16_0[i] as i32 + 1 >> 1) as u16;
+        destination.u16[i] = (destination.u16[i] as i32 + source.u16[i] as i32 + 1 >> 1) as u16;
     }
     write_xmm_reg128(r, destination);
 }
@@ -4428,9 +4497,9 @@ pub unsafe fn instr_660FE4(source: reg128, r: i32) {
     // pmulhuw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = (source.u16_0[i] as i32 * destination.u16_0[i] as i32 >> 16) as u16;
+        result.u16[i] = (source.u16[i] as i32 * destination.u16[i] as i32 >> 16) as u16;
     }
     write_xmm_reg128(r, result);
 }
@@ -4459,9 +4528,9 @@ pub unsafe fn instr_660FE5(source: reg128, r: i32) {
     // pmulhw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = (destination.i16_0[i] as i32 * source.i16_0[i] as i32 >> 16) as u16
+        result.u16[i] = (destination.i16[i] as i32 * source.i16[i] as i32 >> 16) as u16
     }
     write_xmm_reg128(r, result);
 }
@@ -4479,9 +4548,9 @@ pub unsafe fn instr_0FE6_reg(_r1: i32, _r2: i32) { trigger_ud(); }
 pub unsafe fn instr_660FE6(source: reg128, r: i32) {
     // cvttpd2dq xmm1, xmm2/m128
     let result = reg128 {
-        i32_0: [
-            sse_convert_with_truncation_f64_to_i32(source.f64_0[0]),
-            sse_convert_with_truncation_f64_to_i32(source.f64_0[1]),
+        i32: [
+            sse_convert_with_truncation_f64_to_i32(source.f64[0]),
+            sse_convert_with_truncation_f64_to_i32(source.f64[1]),
             0,
             0,
         ],
@@ -4497,10 +4566,10 @@ pub unsafe fn instr_660FE6_reg(r1: i32, r2: i32) { instr_660FE6(read_xmm128s(r1)
 pub unsafe fn instr_F20FE6(source: reg128, r: i32) {
     // cvtpd2dq xmm1, xmm2/m128
     let result = reg128 {
-        i32_0: [
+        i32: [
             // XXX: Precision exception
-            sse_convert_f64_to_i32(source.f64_0[0]),
-            sse_convert_f64_to_i32(source.f64_0[1]),
+            sse_convert_f64_to_i32(source.f64[0]),
+            sse_convert_f64_to_i32(source.f64[1]),
             0,
             0,
         ],
@@ -4516,7 +4585,7 @@ pub unsafe fn instr_F20FE6_reg(r1: i32, r2: i32) { instr_F20FE6(read_xmm128s(r1)
 pub unsafe fn instr_F30FE6(source: u64, r: i32) {
     // cvtdq2pd xmm1, xmm2/m64
     let result = reg128 {
-        f64_0: [
+        f64: [
             // Note: Conversion never fails (i32 fits into f64)
             source as i32 as f64,
             (source >> 32) as i32 as f64,
@@ -4562,9 +4631,9 @@ pub unsafe fn instr_660FE8(source: reg128, r: i32) {
     // psubsb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.i8_0[i] = saturate_sd_to_sb(destination.i8_0[i] as u32 - source.i8_0[i] as u32);
+        result.i8[i] = saturate_sd_to_sb(destination.i8[i] as u32 - source.i8[i] as u32);
     }
     write_xmm_reg128(r, result);
 }
@@ -4593,9 +4662,9 @@ pub unsafe fn instr_660FE9(source: reg128, r: i32) {
     // psubsw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = saturate_sd_to_sw(destination.i16_0[i] as u32 - source.i16_0[i] as u32)
+        result.u16[i] = saturate_sd_to_sw(destination.i16[i] as u32 - source.i16[i] as u32)
     }
     write_xmm_reg128(r, result);
 }
@@ -4624,9 +4693,9 @@ pub unsafe fn instr_660FEA(source: reg128, r: i32) {
     // pminsw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.i16_0[i] = i16::min(destination.i16_0[i], source.i16_0[i])
+        result.i16[i] = i16::min(destination.i16[i], source.i16[i])
     }
     write_xmm_reg128(r, result);
 }
@@ -4676,9 +4745,9 @@ pub unsafe fn instr_660FEC(source: reg128, r: i32) {
     // paddsb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.i8_0[i] = saturate_sd_to_sb(destination.i8_0[i] as u32 + source.i8_0[i] as u32);
+        result.i8[i] = saturate_sd_to_sb(destination.i8[i] as u32 + source.i8[i] as u32);
     }
     write_xmm_reg128(r, result);
 }
@@ -4707,9 +4776,9 @@ pub unsafe fn instr_660FED(source: reg128, r: i32) {
     // paddsw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = saturate_sd_to_sw(destination.i16_0[i] as u32 + source.i16_0[i] as u32)
+        result.u16[i] = saturate_sd_to_sw(destination.i16[i] as u32 + source.i16[i] as u32)
     }
     write_xmm_reg128(r, result);
 }
@@ -4738,9 +4807,9 @@ pub unsafe fn instr_660FEE(source: reg128, r: i32) {
     // pmaxsw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.i16_0[i] = i16::max(destination.i16_0[i], source.i16_0[i])
+        result.i16[i] = i16::max(destination.i16[i], source.i16[i])
     }
     write_xmm_reg128(r, result);
 }
@@ -4784,7 +4853,7 @@ pub unsafe fn instr_0FF1_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FF1(source: reg128, r: i32) {
     // psllw xmm, xmm/m128
     // XXX: Aligned access or #gp
-    psllw_r128(r, source.u64_0[0]);
+    psllw_r128(r, source.u64[0]);
 }
 pub unsafe fn instr_660FF1_reg(r1: i32, r2: i32) { instr_660FF1(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660FF1_mem(addr: i32, r: i32) {
@@ -4803,7 +4872,7 @@ pub unsafe fn instr_0FF2_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FF2(source: reg128, r: i32) {
     // pslld xmm, xmm/m128
     // XXX: Aligned access or #gp
-    pslld_r128(r, source.u64_0[0]);
+    pslld_r128(r, source.u64[0]);
 }
 pub unsafe fn instr_660FF2_reg(r1: i32, r2: i32) { instr_660FF2(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660FF2_mem(addr: i32, r: i32) {
@@ -4822,7 +4891,7 @@ pub unsafe fn instr_0FF3_mem(addr: i32, r: i32) {
 pub unsafe fn instr_660FF3(source: reg128, r: i32) {
     // psllq xmm, xmm/m128
     // XXX: Aligned access or #gp
-    psllq_r128(r, source.u64_0[0]);
+    psllq_r128(r, source.u64[0]);
 }
 pub unsafe fn instr_660FF3_reg(r1: i32, r2: i32) { instr_660FF3(read_xmm128s(r1), r2); }
 pub unsafe fn instr_660FF3_mem(addr: i32, r: i32) {
@@ -4832,10 +4901,7 @@ pub unsafe fn instr_660FF3_mem(addr: i32, r: i32) {
 pub unsafe fn instr_0FF4(source: u64, r: i32) {
     // pmuludq mm, mm/m64
     let destination = read_mmx64s(r);
-    write_mmx_reg64(
-        r,
-        (source as u32 as u64).wrapping_mul(destination as u32 as u64),
-    );
+    write_mmx_reg64(r, (source as u32 as u64) * (destination as u32 as u64));
     transition_fpu_to_mmx();
 }
 pub unsafe fn instr_0FF4_reg(r1: i32, r2: i32) { instr_0FF4(read_mmx64s(r1), r2); }
@@ -4847,9 +4913,9 @@ pub unsafe fn instr_660FF4(source: reg128, r: i32) {
     // pmuludq xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
-    result.u64_0[0] = source.u32_0[0] as u64 * destination.u32_0[0] as u64;
-    result.u64_0[1] = source.u32_0[2] as u64 * destination.u32_0[2] as u64;
+    let mut result = reg128 { i8: [0; 16] };
+    result.u64[0] = source.u32[0] as u64 * destination.u32[0] as u64;
+    result.u64[1] = source.u32[2] as u64 * destination.u32[2] as u64;
     write_xmm_reg128(r, result);
 }
 pub unsafe fn instr_660FF4_reg(r1: i32, r2: i32) { instr_660FF4(read_xmm128s(r1), r2); }
@@ -4879,10 +4945,10 @@ pub unsafe fn instr_660FF5(source: reg128, r: i32) {
     // pmaddwd xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..4 {
-        result.i32_0[i] = destination.i16_0[2 * i] as i32 * source.i16_0[2 * i] as i32
-            + destination.i16_0[2 * i + 1] as i32 * source.i16_0[2 * i + 1] as i32
+        result.i32[i] = destination.i16[2 * i] as i32 * source.i16[2 * i] as i32
+            + destination.i16[2 * i + 1] as i32 * source.i16[2 * i + 1] as i32
     }
     write_xmm_reg128(r, result);
 }
@@ -4914,8 +4980,8 @@ pub unsafe fn instr_660FF6(source: reg128, r: i32) {
     let mut sum0 = 0;
     let mut sum1 = 0;
     for i in 0..8 {
-        sum0 += (destination.u8_0[i + 0] as i32 - source.u8_0[i + 0] as i32).abs() as u32;
-        sum1 += (destination.u8_0[i + 8] as i32 - source.u8_0[i + 8] as i32).abs() as u32;
+        sum0 += (destination.u8[i + 0] as i32 - source.u8[i + 0] as i32).abs() as u32;
+        sum1 += (destination.u8[i + 8] as i32 - source.u8[i + 8] as i32).abs() as u32;
     }
     write_xmm128(r, sum0 as i32, 0, sum1 as i32, 0);
 }
@@ -4966,8 +5032,8 @@ pub unsafe fn maskmovdqu(r1: i32, r2: i32, addr: i32) {
         },
     }
     for i in 0..16 {
-        if 0 != mask.u8_0[i] & 0x80 {
-            safe_write8(addr + i as i32, source.u8_0[i] as i32).unwrap();
+        if 0 != mask.u8[i] & 0x80 {
+            safe_write8(addr + i as i32, source.u8[i] as i32).unwrap();
         }
     }
 }
@@ -4999,9 +5065,9 @@ pub unsafe fn instr_660FF8(source: reg128, r: i32) {
     // psubb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] = destination.u8_0[i] - source.u8_0[i];
+        result.u8[i] = destination.u8[i] - source.u8[i];
     }
     write_xmm_reg128(r, result);
 }
@@ -5030,9 +5096,9 @@ pub unsafe fn instr_660FF9(source: reg128, r: i32) {
     // psubw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.i16_0[i] = destination.i16_0[i] - source.i16_0[i]
+        result.i16[i] = destination.i16[i] - source.i16[i]
     }
     write_xmm_reg128(r, result);
 }
@@ -5063,10 +5129,10 @@ pub unsafe fn instr_660FFA(source: reg128, r: i32) {
     let destination = read_xmm128s(r);
     write_xmm128(
         r,
-        destination.u32_0[0].wrapping_sub(source.u32_0[0]) as i32,
-        destination.u32_0[1].wrapping_sub(source.u32_0[1]) as i32,
-        destination.u32_0[2].wrapping_sub(source.u32_0[2]) as i32,
-        destination.u32_0[3].wrapping_sub(source.u32_0[3]) as i32,
+        destination.i32[0] - source.i32[0],
+        destination.i32[1] - source.i32[1],
+        destination.i32[2] - source.i32[2],
+        destination.i32[3] - source.i32[3],
     );
 }
 pub unsafe fn instr_660FFA_reg(r1: i32, r2: i32) { instr_660FFA(read_xmm128s(r1), r2); }
@@ -5076,7 +5142,7 @@ pub unsafe fn instr_660FFA_mem(addr: i32, r: i32) {
 #[no_mangle]
 pub unsafe fn instr_0FFB(source: u64, r: i32) {
     // psubq mm, mm/m64
-    write_mmx_reg64(r, read_mmx64s(r).wrapping_sub(source));
+    write_mmx_reg64(r, read_mmx64s(r) - source);
     transition_fpu_to_mmx();
 }
 pub unsafe fn instr_0FFB_reg(r1: i32, r2: i32) { instr_0FFB(read_mmx64s(r1), r2); }
@@ -5088,8 +5154,8 @@ pub unsafe fn instr_660FFB(source: reg128, r: i32) {
     // psubq xmm, xmm/m128
     // XXX: Aligned access or #gp
     let mut destination = read_xmm128s(r);
-    destination.u64_0[0] = destination.u64_0[0].wrapping_sub(source.u64_0[0]);
-    destination.u64_0[1] = destination.u64_0[1].wrapping_sub(source.u64_0[1]);
+    destination.u64[0] = destination.u64[0] - source.u64[0];
+    destination.u64[1] = destination.u64[1] - source.u64[1];
     write_xmm_reg128(r, destination);
 }
 pub unsafe fn instr_660FFB_reg(r1: i32, r2: i32) { instr_660FFB(read_xmm128s(r1), r2); }
@@ -5117,9 +5183,9 @@ pub unsafe fn instr_660FFC(source: reg128, r: i32) {
     // paddb xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..16 {
-        result.u8_0[i] = destination.u8_0[i] + source.u8_0[i];
+        result.u8[i] = destination.u8[i] + source.u8[i];
     }
     write_xmm_reg128(r, result);
 }
@@ -5148,9 +5214,9 @@ pub unsafe fn instr_660FFD(source: reg128, r: i32) {
     // paddw xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let mut result = reg128 { i8_0: [0; 16] };
+    let mut result = reg128 { i8: [0; 16] };
     for i in 0..8 {
-        result.u16_0[i] = (destination.u16_0[i] as i32 + source.u16_0[i] as i32 & 0xFFFF) as u16;
+        result.u16[i] = (destination.u16[i] as i32 + source.u16[i] as i32 & 0xFFFF) as u16;
     }
     write_xmm_reg128(r, result);
 }
@@ -5179,10 +5245,10 @@ pub unsafe fn instr_660FFE(source: reg128, r: i32) {
     // paddd xmm, xmm/m128
     // XXX: Aligned access or #gp
     let destination = read_xmm128s(r);
-    let dword0 = destination.u32_0[0].wrapping_add(source.u32_0[0]) as i32;
-    let dword1 = destination.u32_0[1].wrapping_add(source.u32_0[1]) as i32;
-    let dword2 = destination.u32_0[2].wrapping_add(source.u32_0[2]) as i32;
-    let dword3 = destination.u32_0[3].wrapping_add(source.u32_0[3]) as i32;
+    let dword0 = destination.i32[0] + source.i32[0];
+    let dword1 = destination.i32[1] + source.i32[1];
+    let dword2 = destination.i32[2] + source.i32[2];
+    let dword3 = destination.i32[3] + source.i32[3];
     write_xmm128(r, dword0, dword1, dword2, dword3);
 }
 pub unsafe fn instr_660FFE_reg(r1: i32, r2: i32) { instr_660FFE(read_xmm128s(r1), r2); }

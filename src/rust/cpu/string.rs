@@ -9,20 +9,21 @@
 // ins    0    0   1/w
 // outs   0    1   0
 
-use cpu::arith::{cmp8, cmp16, cmp32};
+use cpu::arith::{cmp16, cmp32, cmp8};
 use cpu::cpu::{
-    get_seg, io_port_read8, io_port_read16, io_port_read32, io_port_write8, io_port_write16,
-    io_port_write32, read_reg16, read_reg32, safe_read8, safe_read16, safe_read32s, safe_write8,
-    safe_write16, safe_write32, set_reg_asize, test_privileges_for_io, translate_address_read,
-    translate_address_write_and_can_skip_dirty, writable_or_pagefault, write_reg8, write_reg16,
-    write_reg32, AL, AX, DX, EAX, ECX, EDI, ES, ESI, FLAG_DIRECTION,
+    get_seg, io_port_read16, io_port_read32, io_port_read8, io_port_write16, io_port_write32,
+    io_port_write8, read_reg16, read_reg32, safe_read16, safe_read32s, safe_read8, safe_write16,
+    safe_write32, safe_write8, set_reg_asize, test_privileges_for_io, translate_address_read,
+    translate_address_write_and_can_skip_dirty, writable_or_pagefault, write_reg16, write_reg32,
+    write_reg8, AL, AX, DX, EAX, ECX, EDI, ES, ESI, FLAG_DIRECTION,
 };
 use cpu::global_pointers::{flags, instruction_pointer, previous_ip};
 use cpu::memory::{
-    in_mapped_range, memcpy_no_mmap_or_dirty_check, memset_no_mmap_or_dirty_check,
-    read8_no_mmap_check, read16_no_mmap_check, read32_no_mmap_check, write8_no_mmap_or_dirty_check,
-    write16_no_mmap_or_dirty_check, write32_no_mmap_or_dirty_check,
+    in_mapped_range, in_svga_lfb, memcpy_into_svga_lfb, memcpy_no_mmap_or_dirty_check,
+    memset_no_mmap_or_dirty_check, read16_no_mmap_check, read32_no_mmap_check, read8_no_mmap_check,
+    write16_no_mmap_or_dirty_check, write32_no_mmap_or_dirty_check, write8_no_mmap_or_dirty_check,
 };
+use jit;
 use page::Page;
 
 fn count_until_end_of_page(direction: i32, size: i32, addr: u32) -> u32 {
@@ -34,7 +35,7 @@ fn count_until_end_of_page(direction: i32, size: i32, addr: u32) -> u32 {
     }) as u32
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 enum Instruction {
     Movs,
     Lods,
@@ -62,7 +63,7 @@ enum Rep {
 #[inline(always)]
 unsafe fn string_instruction(
     is_asize_32: bool,
-    ds: i32,
+    ds_or_prefix: i32,
     instruction: Instruction,
     size: Size,
     rep: Rep,
@@ -71,12 +72,31 @@ unsafe fn string_instruction(
 
     let direction = if 0 != *flags & FLAG_DIRECTION { -1 } else { 1 };
 
+    let mut count = match rep {
+        Rep::Z | Rep::NZ => {
+            let c = (read_reg32(ECX) & asize_mask) as u32;
+            if c == 0 {
+                return;
+            };
+            c
+        },
+        Rep::None => 0,
+    };
+
     let es = match instruction {
         Instruction::Movs
         | Instruction::Cmps
         | Instruction::Stos
         | Instruction::Scas
         | Instruction::Ins => return_on_pagefault!(get_seg(ES)),
+        _ => 0,
+    };
+    let ds = match instruction {
+        Instruction::Movs
+        | Instruction::Cmps
+        | Instruction::Lods
+        | Instruction::Scas
+        | Instruction::Outs => return_on_pagefault!(get_seg(ds_or_prefix)),
         _ => 0,
     };
 
@@ -112,16 +132,6 @@ unsafe fn string_instruction(
         | Instruction::Ins => read_reg32(EDI) & asize_mask,
         _ => 0,
     };
-    let mut count = match rep {
-        Rep::Z | Rep::NZ => {
-            let c = (read_reg32(ECX) & asize_mask) as u32;
-            if c == 0 {
-                return;
-            };
-            c
-        },
-        Rep::None => 0,
-    };
 
     let port = match instruction {
         Instruction::Ins | Instruction::Outs => {
@@ -135,7 +145,9 @@ unsafe fn string_instruction(
     };
 
     let is_aligned = (ds + src) & (size_bytes - 1) == 0 && (es + dst) & (size_bytes - 1) == 0;
-    let mut rep_fast = is_aligned
+
+    // unaligned movs is properly handled in the fast path
+    let mut rep_fast = (instruction == Instruction::Movs || is_aligned)
         && is_asize_32 // 16-bit address wraparound
         && match rep {
             Rep::NZ | Rep::Z => true,
@@ -146,9 +158,20 @@ unsafe fn string_instruction(
     let mut phys_src = 0;
     let mut skip_dirty_page = false;
 
-    if rep_fast {
+    let mut movs_into_svga_lfb = false;
+    let mut movs_reenter_fast_path = false;
+
+    let count_until_end_of_page = if rep_fast {
         match instruction {
-            Instruction::Movs | Instruction::Stos | Instruction::Ins => {
+            Instruction::Movs => {
+                let (addr, skip) =
+                    return_on_pagefault!(translate_address_write_and_can_skip_dirty(es + dst));
+                movs_into_svga_lfb = in_svga_lfb(addr);
+                rep_fast = rep_fast && (!in_mapped_range(addr) || movs_into_svga_lfb);
+                phys_dst = addr;
+                skip_dirty_page = skip;
+            },
+            Instruction::Stos | Instruction::Ins => {
                 let (addr, skip) =
                     return_on_pagefault!(translate_address_write_and_can_skip_dirty(es + dst));
                 rep_fast = rep_fast && !in_mapped_range(addr);
@@ -173,18 +196,6 @@ unsafe fn string_instruction(
             _ => {},
         };
 
-        match instruction {
-            Instruction::Movs => {
-                // note: This check is also valid for both direction == 1 and direction == -1
-                let overlap = u32::max(phys_src, phys_dst) - u32::min(phys_src, phys_dst)
-                    < count * size_bytes as u32;
-                rep_fast = rep_fast && !overlap;
-            },
-            _ => {},
-        }
-    }
-
-    if rep_fast {
         let count_until_end_of_page = u32::min(
             count,
             match instruction {
@@ -200,10 +211,45 @@ unsafe fn string_instruction(
                 },
             },
         );
+
+        match instruction {
+            Instruction::Movs => {
+                let c = count_until_end_of_page * size_bytes as u32;
+
+                let overlap_interferes = if phys_src < phys_dst {
+                    // backward moves may overlap at the front of the destination string
+                    phys_dst - phys_src < c && direction == 1
+                }
+                else if phys_src > phys_dst {
+                    // forward moves may overlap at the front of the source string
+                    phys_src - phys_dst < c && direction == -1
+                }
+                else {
+                    false
+                };
+                rep_fast = rep_fast && !overlap_interferes;
+
+                // In case the following page-boundary check fails, re-enter instruction after
+                // one iteration of the slow path
+                movs_reenter_fast_path = rep_fast;
+                rep_fast = rep_fast
+                    && (phys_src & 0xFFF <= 0x1000 - size_bytes as u32)
+                    && (phys_dst & 0xFFF <= 0x1000 - size_bytes as u32);
+            },
+            _ => {},
+        }
+
+        count_until_end_of_page
+    }
+    else {
+        0 // not used
+    };
+
+    if rep_fast {
         dbg_assert!(count_until_end_of_page > 0);
 
         if !skip_dirty_page {
-            ::jit::jit_dirty_page(::jit::get_jit_state(), Page::page_of(phys_dst));
+            jit::jit_dirty_page(Page::page_of(phys_dst));
         }
 
         let mut rep_cmp_finished = false;
@@ -256,11 +302,21 @@ unsafe fn string_instruction(
                         phys_src -= (count_until_end_of_page - 1) * size_bytes as u32;
                         phys_dst -= (count_until_end_of_page - 1) * size_bytes as u32;
                     }
-                    memcpy_no_mmap_or_dirty_check(
-                        phys_src,
-                        phys_dst,
-                        count_until_end_of_page * size_bytes as u32,
-                    );
+                    if movs_into_svga_lfb {
+                        ::cpu::vga::mark_dirty(phys_dst);
+                        memcpy_into_svga_lfb(
+                            phys_src,
+                            phys_dst,
+                            count_until_end_of_page * size_bytes as u32,
+                        );
+                    }
+                    else {
+                        memcpy_no_mmap_or_dirty_check(
+                            phys_src,
+                            phys_dst,
+                            count_until_end_of_page * size_bytes as u32,
+                        );
+                    }
                     i = count_until_end_of_page;
                     break;
                 },
@@ -400,23 +456,27 @@ unsafe fn string_instruction(
                 _ => {},
             };
 
+            count -= 1;
+
             let finished = match rep {
-                Rep::Z | Rep::NZ => {
-                    let rep_cmp = match (rep, instruction) {
-                        (Rep::Z, Instruction::Cmps) => src_val == dst_val,
-                        (Rep::Z, Instruction::Scas) => src_val == dst_val,
-                        (Rep::NZ, Instruction::Cmps) => src_val != dst_val,
-                        (Rep::NZ, Instruction::Scas) => src_val != dst_val,
-                        _ => true,
-                    };
-                    count -= 1;
-                    if count != 0 && rep_cmp {
-                        //*instruction_pointer = *previous_ip
-                        false
-                    }
-                    else {
-                        true
-                    }
+                Rep::Z | Rep::NZ => match (rep, instruction) {
+                    (Rep::Z, Instruction::Cmps) => src_val != dst_val || count == 0,
+                    (Rep::Z, Instruction::Scas) => src_val != dst_val || count == 0,
+                    (Rep::NZ, Instruction::Cmps) => src_val == dst_val || count == 0,
+                    (Rep::NZ, Instruction::Scas) => src_val == dst_val || count == 0,
+                    (Rep::NZ | Rep::Z, Instruction::Movs) => {
+                        if count == 0 {
+                            true
+                        }
+                        else if movs_reenter_fast_path {
+                            *instruction_pointer = *previous_ip;
+                            true
+                        }
+                        else {
+                            false
+                        }
+                    },
+                    _ => count == 0,
                 },
                 Rep::None => true,
             };
@@ -459,47 +519,47 @@ unsafe fn string_instruction(
 }
 
 #[no_mangle]
-pub unsafe fn movsb_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Movs, Size::B, Rep::Z)
+pub unsafe fn movsb_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Movs, Size::B, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn movsw_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Movs, Size::W, Rep::Z)
+pub unsafe fn movsw_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Movs, Size::W, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn movsd_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Movs, Size::D, Rep::Z)
+pub unsafe fn movsd_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Movs, Size::D, Rep::Z)
 }
-pub unsafe fn movsb_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Movs, Size::B, Rep::None)
+pub unsafe fn movsb_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Movs, Size::B, Rep::None)
 }
-pub unsafe fn movsw_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Movs, Size::W, Rep::None)
+pub unsafe fn movsw_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Movs, Size::W, Rep::None)
 }
-pub unsafe fn movsd_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Movs, Size::D, Rep::None)
+pub unsafe fn movsd_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Movs, Size::D, Rep::None)
 }
 
 #[no_mangle]
-pub unsafe fn lodsb_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Lods, Size::B, Rep::Z)
+pub unsafe fn lodsb_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Lods, Size::B, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn lodsw_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Lods, Size::W, Rep::Z)
+pub unsafe fn lodsw_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Lods, Size::W, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn lodsd_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Lods, Size::D, Rep::Z)
+pub unsafe fn lodsd_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Lods, Size::D, Rep::Z)
 }
-pub unsafe fn lodsb_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Lods, Size::B, Rep::None)
+pub unsafe fn lodsb_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Lods, Size::B, Rep::None)
 }
-pub unsafe fn lodsw_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Lods, Size::W, Rep::None)
+pub unsafe fn lodsw_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Lods, Size::W, Rep::None)
 }
-pub unsafe fn lodsd_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Lods, Size::D, Rep::None)
+pub unsafe fn lodsd_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Lods, Size::D, Rep::None)
 }
 
 #[no_mangle]
@@ -525,40 +585,40 @@ pub unsafe fn stosd_no_rep(is_asize_32: bool) {
 }
 
 #[no_mangle]
-pub unsafe fn cmpsb_repz(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::B, Rep::Z)
+pub unsafe fn cmpsb_repz(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::B, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn cmpsw_repz(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::W, Rep::Z)
+pub unsafe fn cmpsw_repz(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::W, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn cmpsd_repz(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::D, Rep::Z)
+pub unsafe fn cmpsd_repz(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::D, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn cmpsb_repnz(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::B, Rep::NZ)
+pub unsafe fn cmpsb_repnz(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::B, Rep::NZ)
 }
 #[no_mangle]
-pub unsafe fn cmpsw_repnz(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::W, Rep::NZ)
+pub unsafe fn cmpsw_repnz(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::W, Rep::NZ)
 }
 #[no_mangle]
-pub unsafe fn cmpsd_repnz(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::D, Rep::NZ)
+pub unsafe fn cmpsd_repnz(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::D, Rep::NZ)
 }
 #[no_mangle]
-pub unsafe fn cmpsb_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::B, Rep::None)
+pub unsafe fn cmpsb_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::B, Rep::None)
 }
 #[no_mangle]
-pub unsafe fn cmpsw_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::W, Rep::None)
+pub unsafe fn cmpsw_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::W, Rep::None)
 }
 #[no_mangle]
-pub unsafe fn cmpsd_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Cmps, Size::D, Rep::None)
+pub unsafe fn cmpsd_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Cmps, Size::D, Rep::None)
 }
 
 #[no_mangle]
@@ -596,28 +656,28 @@ pub unsafe fn scasd_no_rep(is_asize_32: bool) {
 }
 
 #[no_mangle]
-pub unsafe fn outsb_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Outs, Size::B, Rep::Z)
+pub unsafe fn outsb_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Outs, Size::B, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn outsw_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Outs, Size::W, Rep::Z)
+pub unsafe fn outsw_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Outs, Size::W, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn outsd_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Outs, Size::D, Rep::Z)
+pub unsafe fn outsd_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Outs, Size::D, Rep::Z)
 }
 #[no_mangle]
-pub unsafe fn outsb_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Outs, Size::B, Rep::None)
+pub unsafe fn outsb_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Outs, Size::B, Rep::None)
 }
 #[no_mangle]
-pub unsafe fn outsw_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Outs, Size::W, Rep::None)
+pub unsafe fn outsw_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Outs, Size::W, Rep::None)
 }
 #[no_mangle]
-pub unsafe fn outsd_no_rep(is_asize_32: bool, ds: i32) {
-    string_instruction(is_asize_32, ds, Instruction::Outs, Size::D, Rep::None)
+pub unsafe fn outsd_no_rep(is_asize_32: bool, seg: i32) {
+    string_instruction(is_asize_32, seg, Instruction::Outs, Size::D, Rep::None)
 }
 
 #[no_mangle]

@@ -17,8 +17,9 @@ function SerialAdapter(element, bus)
     this.last_update = 0;
 
 
-    this.bus.register("serial0-output-char", function(chr)
+    this.bus.register("serial0-output-byte", function(byte)
     {
+        var chr = String.fromCharCode(byte);
         this.show_char(chr);
     }, this);
 
@@ -204,8 +205,9 @@ function SerialRecordingAdapter(bus)
     var serial = this;
     this.text = "";
 
-    bus.register("serial0-output-char", function(chr)
+    bus.register("serial0-output-byte", function(byte)
     {
+        var chr = String.fromCharCode(byte);
         this.text += chr;
     }, this);
 }
@@ -223,21 +225,27 @@ function SerialAdapterXtermJS(element, bus)
         return;
     }
 
-    var term = this.term = new window["Terminal"]();
-    term["setOption"]("logLevel", "off");
+    var term = this.term = new window["Terminal"]({
+        "logLevel": "off",
+    });
     term.write("This is the serial console. Whatever you type or paste here will be sent to COM1");
 
-    term["onData"](function(data) {
+    const on_data_disposable = term["onData"](function(data) {
         for(let i = 0; i < data.length; i++)
         {
             bus.send("serial0-input", data.charCodeAt(i));
         }
     });
 
-    bus.register("serial0-output-char", function(chr)
+    bus.register("serial0-output-byte", function(byte)
     {
-        term.write(chr);
+        term.write(Uint8Array.of(byte));
     }, this);
+
+    this.destroy = function() {
+        on_data_disposable["dispose"]();
+        term["dispose"]();
+    };
 }
 
 SerialAdapterXtermJS.prototype.show = function()

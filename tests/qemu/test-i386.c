@@ -1050,7 +1050,7 @@ void test_fbcd(double a)
     double b;
 
     asm("fbstp %0" : "=m" (bcd[0]) : "t" (a) : "st");
-    asm("fbld %1" : "=t" (b) : "m" (bcd[0]));
+    //asm("fbld %1" : "=t" (b) : "m" (bcd[0]));
     printf("a=%f bcd=%04x%04x%04x%04x%04x b=%f\n",
            a, bcd[4], bcd[3], bcd[2], bcd[1], bcd[0], b);
 }
@@ -1180,8 +1180,20 @@ void test_floats(void)
     test_fcvt(1.0/0.0);
     test_fcvt(q_nan.d);
     test_fconst();
-    //test_fbcd(1234567890123456.0);
-    //test_fbcd(-123451234567890.0);
+    test_fbcd(0.0);
+    test_fbcd(-0.0);
+    test_fbcd(1.0);
+    test_fbcd(-1.0);
+    test_fbcd(1234567890123456.0);
+    test_fbcd(-123451234567890.0);
+    test_fbcd(341234567890123456.0);
+    test_fbcd(-345123451234567890.0);
+    test_fbcd(999999999999999900.0);
+    test_fbcd(-999999999999999900.0);
+    test_fbcd(1000000000000000000.0);
+    test_fbcd(-1000000000000000000.0);
+    test_fbcd(1000000000000000000000.0);
+    test_fbcd(-1000000000000000000000.0);
     test_fenv();
     if (TEST_CMOV) {
         test_fcmov();
@@ -1685,12 +1697,12 @@ uint8_t __attribute__((aligned (4096))) str_buffer[STR_BUFFER_SIZE];
 {\
     long esi, edi, eax, ecx, eflags, i;\
 \
-    for(i = 0; i < (count + 1) * size_bytes; i++)\
+    for(i = 0; i < (count + 1) * size_bytes; i++) {\
         str_buffer[sizeof(str_buffer)/2 + offset1 + i] = i + 0x56;\
         str_buffer[sizeof(str_buffer)/2 + offset1 - i - 1] = i + 0x97;\
         str_buffer[sizeof(str_buffer)/2 + offset2 + i] = i + 0xa5;\
         str_buffer[sizeof(str_buffer)/2 + offset2 - i - 1] = i + 0x3e;\
-\
+    }\
     esi = (long)(str_buffer + sizeof(str_buffer)/2 + offset1);\
     edi = (long)(str_buffer + sizeof(str_buffer)/2 + offset2);\
     eax = i2l(0x12345678);\
@@ -2539,7 +2551,7 @@ void test_sse_comi(double a1, double b1)
 
 #define CVT_OP_XMM(op)\
 {\
-    asm volatile (#op " %1, %0" : "=x" (r.dq) : "x" (a.dq));\
+    asm volatile (#op " %1, %0" : "+x" (r.dq) : "x" (a.dq));\
     printf("%-9s: a=" FMT64X "" FMT64X " r=" FMT64X "" FMT64X "\n",\
            #op,\
            a.q[1], a.q[0],\
@@ -2571,7 +2583,7 @@ void test_sse_comi(double a1, double b1)
 
 #define CVT_OP_REG2XMM(op)\
 {\
-    asm volatile (#op " %1, %0" : "=x" (r.dq) : "r" (a.l[0]));\
+    asm volatile (#op " %1, %0" : "+x" (r.dq) : "r" (a.l[0]));\
     printf("%-9s: a=%08x r=" FMT64X "" FMT64X "\n",\
            #op,\
            a.l[0],\
@@ -2715,10 +2727,10 @@ void test_sse(void)
     MMX_OP2(pavgb);
     MMX_OP2(pavgw);
 
-    asm volatile ("pinsrw $1, %1, %0" : "=y" (r.q[0]) : "r" (0x12345678));
+    asm volatile ("pinsrw $1, %1, %0" : "+y" (r.q[0]) : "r" (0x12345678));
     printf("%-9s: r=" FMT64X "\n", "pinsrw", r.q[0]);
 
-    asm volatile ("pinsrw $5, %1, %0" : "=x" (r.dq) : "r" (0x12345678));
+    asm volatile ("pinsrw $5, %1, %0" : "+x" (r.dq) : "r" (0x12345678));
     printf("%-9s: r=" FMT64X "" FMT64X "\n", "pinsrw", r.q[1], r.q[0]);
 
     a.q[0] = test_values[0][0];

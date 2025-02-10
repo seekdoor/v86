@@ -19,7 +19,7 @@ const config = {
     memory_size: 32 * 1024 * 1024,
     filesystem: {},
     log_level: 0,
-    screen_dummy: true,
+    disable_jit: +process.env.DISABLE_JIT,
 };
 
 const emulator = new V86(config);
@@ -27,15 +27,16 @@ const emulator = new V86(config);
 let did_restart = false;
 let serial_text = "";
 
-emulator.add_listener("serial0-output-char", function(chr)
+emulator.add_listener("serial0-output-byte", function(byte)
 {
+    var chr = String.fromCharCode(byte);
     serial_text += chr;
 
     if(serial_text.includes("Files send via emulator appear in /mnt/")) {
         serial_text = "";
         if(did_restart) {
             console.log("Ok");
-            emulator.stop();
+            emulator.destroy();
         }
         else {
             console.log("Calling restart()");

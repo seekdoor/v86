@@ -7,9 +7,9 @@ var TIMEOUT_EXTRA_FACTOR = +process.env.TIMEOUT_EXTRA_FACTOR || 1;
 var MAX_PARALLEL_TESTS = +process.env.MAX_PARALLEL_TESTS || 4;
 var TEST_NAME = process.env.TEST_NAME;
 const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
+const RUN_SLOW_TESTS = +process.env.RUN_SLOW_TESTS;
 
 const VERBOSE = false;
-const RUN_SLOW_TESTS = false;
 const LOG_SCREEN = false;
 
 try
@@ -47,7 +47,7 @@ function string_to_bytearray(str)
 
 function bytearray_to_string(arr)
 {
-    return String.fromCharCode.apply(String, arr);
+    return String.fromCharCode.apply(String, arr).replace(/[\x00-\x08\x0b-\x1f\x7f\x80-\xff]/g, " ");
 }
 
 function screen_to_text(s)
@@ -149,6 +149,26 @@ if(cluster.isMaster)
             ],
         },
         {
+            name: "Windows XP CD",
+            skip_if_disk_image_missing: true,
+            cdrom: root_path + "/images/experimental/VirtualXP.iso",
+            memory_size: 512 * 1024 * 1024,
+            timeout: 600,
+            expect_graphical_mode: true,
+            expect_graphical_size: [800, 600],
+            expect_mouse_registered: true,
+        },
+        {
+            name: "Windows XP HD",
+            skip_if_disk_image_missing: true,
+            hda: root_path + "/images/experimental/copy_winxp_lite-from-pixelsuft.img",
+            memory_size: 512 * 1024 * 1024,
+            timeout: 300,
+            expect_graphical_mode: true,
+            expect_graphical_size: [800, 600],
+            expect_mouse_registered: true,
+        },
+        {
             name: "Windows 2000",
             skip_if_disk_image_missing: true,
             hda: root_path + "/images/windows2k.img",
@@ -156,6 +176,27 @@ if(cluster.isMaster)
             timeout: 300,
             expect_graphical_mode: true,
             expect_graphical_size: [1024, 768],
+            expect_mouse_registered: true,
+        },
+        {
+            name: "Windows NT 4.0",
+            skip_if_disk_image_missing: true,
+            hda: root_path + "/images/winnt4_noacpi.img",
+            memory_size: 512 * 1024 * 1024,
+            timeout: 60,
+            expect_graphical_mode: true,
+            expect_graphical_size: [1024, 768],
+            expect_mouse_registered: true,
+            cpuid_level: 2,
+        },
+        {
+            name: "Windows NT 3.1",
+            skip_if_disk_image_missing: true,
+            hda: root_path + "/images/winnt31.img",
+            memory_size: 256 * 1024 * 1024,
+            timeout: 60,
+            expect_graphical_mode: true,
+            expect_graphical_size: [640, 480],
             expect_mouse_registered: true,
         },
         //{
@@ -172,7 +213,7 @@ if(cluster.isMaster)
             name: "Windows 95",
             skip_if_disk_image_missing: true,
             hda: root_path + "/images/w95.img",
-            timeout: 60,
+            timeout: 120,
             expect_graphical_mode: true,
             expect_graphical_size: [1024, 768],
             expect_mouse_registered: true,
@@ -251,6 +292,20 @@ if(cluster.isMaster)
             ],
         },
         {
+            name: "MS-DOS (hard disk + floppy disk)",
+            skip_if_disk_image_missing: true,
+            hda: root_path + "/images/msdos.img",
+            fda: root_path + "/images/kolibri.img",
+            boot_order: 0x132,
+            timeout: 90,
+            actions: [
+                { on_text: "C:\\>", run: "a:\n" },
+            ],
+            expected_texts: [
+                "A:\\>",
+            ],
+        },
+        {
             name: "Linux 4",
             skip_if_disk_image_missing: true,
             cdrom: root_path + "/images/linux4.iso",
@@ -265,7 +320,7 @@ if(cluster.isMaster)
         },
         {
             name: "Linux bzImage",
-            bzimage: root_path + "/images/buildroot-bzimage.bin",
+            bzimage: root_path + "/images/buildroot-bzimage68.bin",
             cmdline: "auto",
             timeout: 200,
             expected_texts: [
@@ -388,7 +443,7 @@ if(cluster.isMaster)
             name: "FreeBSD",
             skip_if_disk_image_missing: true,
             timeout: 15 * 60,
-            hda: root_path + "/images/internal/freebsd/freebsd.img",
+            hda: root_path + "/images/freebsd.img",
             expected_texts: [
                 "FreeBSD/i386 (nyu) (ttyv0)",
                 "root@nyu:~ #",
@@ -435,6 +490,7 @@ if(cluster.isMaster)
             skip_if_disk_image_missing: true,
             timeout: 20 * 60,
             bzimage_initrd_from_filesystem: true,
+            memory_size: 512 * 1024 * 1024,
             cmdline: [
                 "rw apm=off vga=0x344 video=vesafb:ypan,vremap:8",
                 "root=host9p rootfstype=9p rootflags=trans=virtio,cache=loose mitigations=off",
@@ -442,7 +498,7 @@ if(cluster.isMaster)
             ].join(" "),
             filesystem: {
                 basefs: "images/fs.json",
-                baseurl: "images/arch-nongz/",
+                baseurl: "images/arch/",
             },
             expected_texts: [
                 "root@localhost",
@@ -451,6 +507,7 @@ if(cluster.isMaster)
                 "Hello from JS",
                 "Hello from OCaml",
                 "Compress okay",
+                "v86-in-v86 okay",
             ],
             actions: [
                 {
@@ -478,6 +535,14 @@ if(cluster.isMaster)
                 },
                 {
                     on_text: "Compress okay",
+                    run:
+                        RUN_SLOW_TESTS ?
+                            "./v86-in-v86.js | tee /dev/stderr | grep -m1 'Files send via emulator appear in' ; sleep 2; echo v86-in-v86 okay\n"
+                        :
+                            "./v86-in-v86.js | tee /dev/stderr | grep -m1 'Kernel command line:' ; sleep 2; echo v86-in-v86 okay\n",
+                },
+                {
+                    on_text: "v86-in-v86 okay",
                     run: "./startx.sh\n",
                 },
             ],
@@ -489,7 +554,7 @@ if(cluster.isMaster)
             name: "FreeGEM",
             skip_if_disk_image_missing: true,
             timeout: 60,
-            hda: root_path + "/images/experimental/os/freegem.bin",
+            hda: root_path + "/images/freegem.bin",
             expect_graphical_mode: true,
             expect_mouse_registered: true,
             actions: [
@@ -527,6 +592,7 @@ if(cluster.isMaster)
         },
         {
             name: "9front",
+            use_small_bios: true, // has issues with 256k bios
             skip_if_disk_image_missing: true,
             acpi: true,
             timeout: 5 * 60,
@@ -588,9 +654,10 @@ if(cluster.isMaster)
             name: "HelenOS",
             skip_if_disk_image_missing: true,
             timeout: 3 * 60,
-            cdrom: root_path + "/images/experimental/os/HelenOS-0.5.0-ia32.iso",
+            cdrom: root_path + "/images/HelenOS-0.11.2-ia32.iso",
             expect_graphical_mode: true,
             expect_mouse_registered: true,
+            expected_serial_text: ["init: Spawning"],
         },
         {
             name: "Minix",
@@ -660,6 +727,101 @@ if(cluster.isMaster)
             expect_mouse_registered: true,
         },
         {
+            name: "Redox",
+            skip_if_disk_image_missing: true,
+            timeout: 5 * 60,
+            memory_size: 512 * 1024 * 1024,
+            acpi: true,
+            hda: root_path + "/images/redox_demo_i686_2022-11-26_643_harddrive.img",
+            actions: [
+                { on_text: "Arrow keys and enter select mode", run: "\n" },
+            ],
+            expect_graphical_mode: true,
+            expect_mouse_registered: true,
+            expected_serial_text: ["# Login with the following:"],
+        },
+        {
+            name: "Android 1.6",
+            skip_if_disk_image_missing: true,
+            timeout: 2 * 60,
+            cdrom: root_path + "/images/android-x86-1.6-r2.iso",
+            expect_graphical_mode: true,
+            expect_graphical_size: [800, 600],
+            expect_mouse_registered: true,
+        },
+        {
+            name: "Android 4.4",
+            skip_if_disk_image_missing: true,
+            timeout: 5 * 60,
+            hda: root_path + "/images/android_x86_nonsse3_4.4r1_20140904.iso",
+            expect_graphical_mode: true,
+            expect_graphical_size: [800, 600],
+            expect_mouse_registered: true,
+        },
+        {
+            name: "Syllable",
+            skip_if_disk_image_missing: true,
+            timeout: 60,
+            memory_size: 512 * 1024 * 1024,
+            hda: root_path + "/images/syllable-destop-0.6.7.img",
+            expect_graphical_mode: true,
+            expect_mouse_registered: true,
+        },
+        {
+            name: "Mu",
+            skip_if_disk_image_missing: true,
+            timeout: 60,
+            memory_size: 256 * 1024 * 1024,
+            hda: root_path + "/images/mu-shell.img",
+            expect_graphical_mode: true,
+            expect_mouse_registered: true,
+        },
+        {
+            name: "ASM Space Invaders",
+            skip_if_disk_image_missing: true,
+            timeout: 10,
+            fda: root_path + "/images/space-invaders.img", // non-standard floppy disk size, reads past end of original image
+            expected_texts: [
+                "                             #   SPACE INVADERS   # ",
+            ],
+        },
+        {
+            name: "NetBSD multiboot",
+            skip_if_disk_image_missing: true,
+            timeout: 15,
+            memory_size: 256 * 1024 * 1024,
+            multiboot: root_path + "/images/netbsd9.3-kernel-multiboot.img",
+            expected_texts: [
+                // NOTE: doesn't success booting yet, just testing the multiboot boot
+                "[   1.0000000] multiboot:",
+            ],
+        },
+        {
+            name: "Crazierl",
+            skip_if_disk_image_missing: true,
+            timeout: 60,
+            memory_size: 256 * 1024 * 1024,
+            multiboot: root_path + "/images/crazierl-elf.img",
+            initrd: root_path + "/images/crazierl-initrd.img",
+            cmdline: "kernel /libexec/ld-elf32.so.1",
+            acpi: true,
+            expected_serial_text: [
+                "Welcome to Crazierl:",
+            ],
+        },
+        {
+            name: "Linux with Postgres",
+            skip_if_disk_image_missing: true,
+            timeout: 5 * 60,
+            memory_size: 512 * 1024 * 1024,
+            cdrom: root_path + "/images/experimental/linux-postgres.iso",
+            expected_texts: [
+                "performing post-bootstrap initialization",
+                "syncing data to disk",
+                "Success. You can now start the database server using",
+            ],
+        },
+        {
             name: "Tiny Core 11 CD",
             skip_if_disk_image_missing: 1,
             timeout: 10 * 60,
@@ -678,12 +840,17 @@ if(cluster.isMaster)
             actions: [{ on_text: "                   BIOS default device boot in", run: "\n", after: 5000 }],
         },
         {
-            name: "Core 9",
+            name: "Core 9 (with floppy disk)",
             skip_if_disk_image_missing: 1,
             timeout: 5 * 60,
             cdrom: root_path + "/images/experimental/os/Core-9.0.iso",
-            expected_texts: ["tc@box"],
-            actions: [{ on_text: "boot:", run: "\n" }],
+            fda: root_path + "/images/freedos722.img",
+            boot_order: 0x132,
+            actions: [
+                { on_text: "boot:", run: "\n" },
+                { on_text: "tc@box", run: "sudo mount /dev/fd0 /mnt && ls /mnt\n" },
+            ],
+            expected_texts: ["AUTOEXEC.BAT"],
         },
         {
             name: "Core 8",
@@ -800,14 +967,15 @@ function run_test(test, done)
 {
     console.log("Starting test: %s", test.name);
 
-    let image = test.fda || test.hda || test.cdrom || test.bzimage || test.filesystem && test.filesystem.basefs;
-    assert(image, "Bootable drive expected");
+    const images = [test.fda, test.hda, test.cdrom, test.bzimage, test.multiboot, test.filesystem && test.filesystem.basefs].filter(x => x);
+    assert(images.length, "Bootable drive expected");
 
-    if(!fs.existsSync(image))
+    const missing_images = images.filter(i => !fs.existsSync(i));
+    if(missing_images.length)
     {
         if(test.skip_if_disk_image_missing)
         {
-            console.warn("Missing disk image: " + image + ", test skipped");
+            console.warn("Missing disk image: " + missing_images.join(", ") + ", test skipped");
             console.warn();
 
             done();
@@ -815,7 +983,7 @@ function run_test(test, done)
         }
         else
         {
-            console.warn("Missing disk image: " + image);
+            console.warn("Missing disk image: " + missing_images.join(", "));
             process.exit(1);
         }
     }
@@ -833,7 +1001,7 @@ function run_test(test, done)
         var bios = root_path + "/bios/bochs-bios.bin";
         var vga_bios = root_path + "/bios/bochs-vgabios.bin";
     }
-    else if(TEST_RELEASE_BUILD)
+    else if(test.use_small_bios || TEST_RELEASE_BUILD)
     {
         var bios = root_path + "/bios/seabios.bin";
         var vga_bios = root_path + "/bios/vgabios.bin";
@@ -869,6 +1037,14 @@ function run_test(test, done)
     {
         settings.bzimage = { url: test.bzimage };
     }
+    if(test.multiboot)
+    {
+        settings.multiboot = { url: test.multiboot };
+    }
+    if(test.initrd)
+    {
+        settings.initrd = { url: test.initrd };
+    }
     if(test.filesystem)
     {
         settings.filesystem = test.filesystem;
@@ -876,6 +1052,9 @@ function run_test(test, done)
     settings.cmdline = test.cmdline;
     settings.bzimage_initrd_from_filesystem = test.bzimage_initrd_from_filesystem;
     settings.acpi = test.acpi;
+    settings.boot_order = test.boot_order;
+    settings.cpuid_level = test.cpuid_level;
+    settings.disable_jit = +process.env.DISABLE_JIT;
 
     if(test.expected_texts)
     {
@@ -967,7 +1146,6 @@ function run_test(test, done)
                 clearInterval(screen_interval);
             }
 
-            emulator.stop();
             emulator.destroy();
 
             if(test.failure_allowed)
@@ -1022,20 +1200,17 @@ function run_test(test, done)
         check_test_done();
     });
 
-    emulator.add_listener("screen-set-mode", function(is_graphical)
+    emulator.add_listener("screen-set-size", function(args)
     {
-        graphical_test_done = is_graphical;
-        check_test_done();
-    });
+        const [w, h, bpp] = args;
+        graphical_test_done = bpp !== 0;
 
-    emulator.add_listener("screen-set-size-graphical", function(size)
-    {
         if(test.expect_graphical_size)
         {
-            size_test_done = size[0] === test.expect_graphical_size[0] &&
-                             size[1] === test.expect_graphical_size[1];
-            check_test_done();
+            size_test_done = w === test.expect_graphical_size[0] && h === test.expect_graphical_size[1];
         }
+
+        check_test_done();
     });
 
     emulator.add_listener("screen-put-char", function(chr)
@@ -1084,8 +1259,9 @@ function run_test(test, done)
     }
 
     let serial_line = "";
-    emulator.add_listener("serial0-output-char", function(c)
+    emulator.add_listener("serial0-output-byte", function(byte)
         {
+            var c = String.fromCharCode(byte);
             if(c === "\n")
             {
                 if(VERBOSE)

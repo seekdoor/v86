@@ -6,6 +6,15 @@
     padding: 4px;
     color: #fff;
 }
+#screen_container:fullscreen {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+#screen_container:fullscreen #vga {
+    width: auto !important;
+    height: 100% !important;
+}
 #runtime_infos, #filesystem_panel {
     float: left;
     width: 250px;
@@ -42,6 +51,7 @@
 }
 #vga {
     background-color: #000;
+    touch-action: none;
 }
 body {
     background-color: #111;
@@ -53,6 +63,7 @@ body {
 a {
     color: wheat;
     text-decoration: none;
+    cursor: pointer;
 }
 .phone_keyboard {
     width: 0;
@@ -96,35 +107,113 @@ h4 {
     font-weight: bold;
     font-size: 16px;
 }
-#boot_options td {
+#boot_options td, #boot_options th {
     padding: 1px 7px;
 }
-#oses small {
-    font-size: 80%;
-    color: #ccc;
-    padding-left: 5px;
-}
-#oses tr {
+
+#oses tbody tr {
     cursor: pointer;
 }
 #oses {
     border-spacing: 0;
 }
-#oses tr:hover {
+#oses tbody tr:hover {
     background-color: #311;
 }
-#oses td:nth-child(1) {
-    white-space: pre;
-    vertical-align: top;
+#oses td:nth-child(2) {
+    text-align: right;
 }
+#oses thead {
+    text-align: left;
+}
+
+/* This is the best I managed to do with my little css experience.
+   If you can do better, please send a PR. */
+@media (max-width: 1250px) {
+    #oses td:nth-child(9), #oses th:nth-child(9) {
+        display: none;
+    }
+}
+@media (max-width: 1150px) {
+    #oses td:nth-child(8), #oses td:nth-child(7), #oses th:nth-child(8), #oses th:nth-child(7) {
+        display: none;
+    }
+}
+@media (max-width: 1050px) {
+    #oses td:nth-child(5), #oses td:nth-child(6), #oses th:nth-child(5), #oses th:nth-child(6) {
+        display: none;
+    }
+}
+@media (max-width: 850px) {
+    #oses td:nth-child(4), #oses th:nth-child(4) {
+        display: none;
+    }
+}
+@media (max-width: 750px) {
+    #oses th:nth-child(2), #oses th:nth-child(3), #oses th:nth-child(10) {
+        display: none;
+    }
+    #oses td:nth-child(1), #oses td:nth-child(2), #oses td:nth-child(3) {
+        display: inline;
+    }
+    #oses td:nth-child(2), td:nth-child(3) {
+        font-size: smaller;
+    }
+    #oses td:nth-child(10) {
+        display: block;
+        padding-bottom: 10px;
+    }
+}
+
+label {
+    user-select: none;
+    white-space: nowrap;
+}
+input[type=checkbox] {
+    vertical-align: middle;
+    position: relative;
+    bottom: 1px;
+    margin: 0;
+}
+#filter label {
+    background-color: #444;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
 #terminal {
     max-width: 1024px;
+}
+.blink {
+    animation: blink 0.6s step-start infinite;
+}
+@keyframes blink {
+    50% {
+        color: transparent;
+    }
+}
+.blinking-cursor {
+    animation: blinking-cursor 0.6s step-start infinite;
+}
+@keyframes blinking-cursor {
+    50% {
+        background-color: transparent;
+    }
+}
+
+.gui_icon {
+	height: 1em;
+	content: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 50"><path d="M65.6 102.7h15.3v5.1H65.6z" style="fill:white;fill-opacity:1;stroke:none" transform="translate(-64.1 -84.7)"/><path d="M80.9 92.4H118V118H81ZM65 103.6v25.6h38V118H80.8v-14.4z" style="fill:none;stroke:white;stroke-width:2;stroke-linecap:square" transform="translate(-64.1 -84.7)"/><path d="M80.9 92.4h37.9v5.1H80.9zm8.7 21.1v-12.3l7.6 7.6-2.7 1.5 1.9 3.2-1.8 1-2-3.4z" style="fill:white;fill-opacity:1;stroke:none" transform="translate(-64.1 -84.7)"/></svg>');
+}
+.tui_icon {
+	height: 1em;
+	content: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 55 48"><g style="fill:white"><path d="M91 127h26v5H91z" transform="translate(-64 -85)"/><path d="M118 17h26v5h-26z" transform="rotate(45 70 -120)"/><path d="M-43 139h26v5h-26z" transform="rotate(-45 -134 35)"/></g></svg>');
 }
 
 /* the code below was copied from xterm.css */
 
 .xterm {
-    font-feature-settings: "liga" 0;
+    cursor: text;
     position: relative;
     user-select: none;
     -ms-user-select: none;
@@ -213,16 +302,13 @@ h4 {
     line-height: normal;
 }
 
-.xterm {
-    cursor: text;
-}
-
 .xterm.enable-mouse-events {
     /* When mouse events are enabled (eg. tmux), revert to the standard pointer cursor */
     cursor: default;
 }
 
-.xterm.xterm-cursor-pointer {
+.xterm.xterm-cursor-pointer,
+.xterm .xterm-cursor-pointer {
     cursor: pointer;
 }
 
@@ -240,6 +326,7 @@ h4 {
     right: 0;
     z-index: 10;
     color: transparent;
+    pointer-events: none;
 }
 
 .xterm .live-region {
@@ -251,9 +338,49 @@ h4 {
 }
 
 .xterm-dim {
-    opacity: 0.5;
+    /* Dim should not apply to background, so the opacity of the foreground color is applied
+     * explicitly in the generated class and reset to 1 here */
+    opacity: 1 !important;
 }
 
-.xterm-underline {
-    text-decoration: underline;
+.xterm-underline-1 { text-decoration: underline; }
+.xterm-underline-2 { text-decoration: double underline; }
+.xterm-underline-3 { text-decoration: wavy underline; }
+.xterm-underline-4 { text-decoration: dotted underline; }
+.xterm-underline-5 { text-decoration: dashed underline; }
+
+.xterm-overline {
+    text-decoration: overline;
+}
+
+.xterm-overline.xterm-underline-1 { text-decoration: overline underline; }
+.xterm-overline.xterm-underline-2 { text-decoration: overline double underline; }
+.xterm-overline.xterm-underline-3 { text-decoration: overline wavy underline; }
+.xterm-overline.xterm-underline-4 { text-decoration: overline dotted underline; }
+.xterm-overline.xterm-underline-5 { text-decoration: overline dashed underline; }
+
+.xterm-strikethrough {
+    text-decoration: line-through;
+}
+
+.xterm-screen .xterm-decoration-container .xterm-decoration {
+	z-index: 6;
+	position: absolute;
+}
+
+.xterm-screen .xterm-decoration-container .xterm-decoration.xterm-decoration-top-layer {
+	z-index: 7;
+}
+
+.xterm-decoration-overview-ruler {
+    z-index: 8;
+    position: absolute;
+    top: 0;
+    right: 0;
+    pointer-events: none;
+}
+
+.xterm-decoration-top {
+    z-index: 2;
+    position: relative;
 }

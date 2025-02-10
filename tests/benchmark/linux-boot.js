@@ -19,6 +19,7 @@ if(true)
         cdrom: { url: __dirname + "/../../images/linux3.iso" },
         autostart: true,
         memory_size: 32 * 1024 * 1024,
+        disable_jit: +process.env.DISABLE_JIT,
         log_level: 0,
     });
 }
@@ -39,22 +40,23 @@ else
             },
             baseurl: path.join(V86_ROOT, "/images/arch/"),
         },
-        screen_dummy: true,
+        disable_jit: +process.env.DISABLE_JIT,
         log_level: 0,
     });
 }
 
 emulator.bus.register("emulator-started", function()
 {
-    console.error("Booting now, please stand by");
+    console.log("Booting now, please stand by");
     start_time = Date.now();
 });
 
 var serial_text = "";
 var start_time;
 
-emulator.add_listener("serial0-output-char", function(chr)
+emulator.add_listener("serial0-output-byte", function(byte)
 {
+    var chr = String.fromCharCode(byte);
     if(chr < " " && chr !== "\n" && chr !== "\t" || chr > "~")
     {
         return;
@@ -69,7 +71,7 @@ emulator.add_listener("serial0-output-char", function(chr)
         const end_time = Date.now();
         const elapsed = end_time - start_time;
         console.log("Done in %dms", elapsed);
-        emulator.stop();
+        emulator.destroy();
 
         if(BENCH_COLLECT_STATS)
         {

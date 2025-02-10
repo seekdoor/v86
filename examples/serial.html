@@ -7,7 +7,7 @@
 
 window.onload = function()
 {
-    var emulator = new V86Starter({
+    var emulator = new V86({
         wasm_path: "../build/v86.wasm",
 
         // Uncomment to see what's going on
@@ -19,9 +19,12 @@ window.onload = function()
         vga_bios: {
             url: "../bios/vgabios.bin",
         },
-        cdrom: {
-            url: "../images/linux4.iso",
+        bzimage: {
+            url: "../images/buildroot-bzimage68.bin",
+            async: false,
         },
+        filesystem: {},
+        cmdline: "tsc=reliable mitigations=off random.trust_cpu=on",
         autostart: true,
         disable_keyboard: true,
     });
@@ -43,8 +46,9 @@ window.onload = function()
     ];
     var stage = 0;
 
-    emulator.add_listener("serial0-output-char", function(char)
+    emulator.add_listener("serial0-output-byte", function(byte)
     {
+        var char = String.fromCharCode(byte);
         if(char === "\r")
         {
             return;
